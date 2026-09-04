@@ -56,7 +56,7 @@ Base URL 为 `/api/v1`。JSON request body 上限为 1 MiB；Local 文件正文 
 | POST | `/uploads/{upload_id}/complete` | Multipart complete、HEAD/Size 校验和 SQLite commit |
 | DELETE | `/uploads/{upload_id}` | Abort |
 
-创建参数只有 `parent_id`、`filename`、`size`、`mime_type`、`overwrite`。客户端不能提交 Object Key。100 MiB 起使用 multipart；默认 part size 16 MiB，必要时自动增大以确保最多 10,000 parts。
+创建参数只有 `parent_id`、`filename`、`size`、`mime_type`、`overwrite`。客户端不能提交 Object Key。100 MiB 是 multipart 切换阈值而不是文件上限；默认 part size 16 MiB，必要时自动增大以确保最多 10,000 parts。外部存储的数据始终由浏览器通过预签名 URL 直接上传，不经过 API 中转。预签名响应的 `headers` 始终为 JSON object；没有签名请求头时返回 `{}`。
 
 ## Share
 

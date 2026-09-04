@@ -188,8 +188,64 @@ test("OSS storage help explains private access and browser CORS", async ({ page 
   await expect(dialog.getByText("http://127.0.0.1:4173", { exact: true })).toBeVisible();
   await expect(dialog.getByText("GET, HEAD, PUT", { exact: true })).toBeVisible();
   await expect(dialog.getByText("ETag, x-oss-request-id, x-oss-hash-crc64ecma", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("100 MiB 是分片阈值，不是文件大小上限", { exact: true })).toBeVisible();
   await expect(dialog.locator("pre.config-preview")).toContainText("oss:AbortMultipartUpload");
   await expect(dialog.getByRole("link", { name: "查看阿里云 OSS 官方跨域配置文档" })).toHaveAttribute("href", /help\.aliyun\.com/);
+});
+
+test("multipart upload accepts empty presigned headers", async ({ page }) => {
+  const projectId = "01900000-0000-7000-8000-000000000030";
+  let uploadedParts = 0;
+  let completedParts: Array<{ part_number: number; etag: string }> = [];
+
+  await page.route(`https://api.example.test/api/v1/projects/${projectId}`, (route) => route.fulfill({
+    json: {
+      id: projectId,
+      name: "大文件上传测试",
+      description: "",
+      storage_backend_id: ossBackend.id,
+      created_by: admin.id,
+      status: "active",
+      permission: "admin",
+      created_at: "2026-09-04T00:00:00Z",
+      updated_at: "2026-09-04T00:00:00Z",
+    },
+  }));
+  await page.route(`https://api.example.test/api/v1/projects/${projectId}/nodes`, (route) => route.fulfill({ json: { items: [] } }));
+  await page.route(`https://api.example.test/api/v1/projects/${projectId}/members`, (route) => route.fulfill({ json: { items: [] } }));
+  await page.route(`https://api.example.test/api/v1/projects/${projectId}/uploads`, (route) => route.fulfill({
+    status: 201,
+    json: { upload_id: "multipart-upload", upload_type: "multipart", part_size: 16, part_count: 1 },
+  }));
+  await page.route("https://api.example.test/api/v1/uploads/multipart-upload/parts/presign", (route) => route.fulfill({
+    json: { parts: [{ part_number: 1, url: "https://oss.example.test/part-1", method: "PUT", headers: null }] },
+  }));
+  await page.route("https://oss.example.test/part-1", (route) => {
+    uploadedParts += 1;
+    return route.fulfill({
+      status: 200,
+      headers: {
+        ETag: '"etag-1"',
+        "Access-Control-Allow-Origin": "http://127.0.0.1:4173",
+        "Access-Control-Expose-Headers": "ETag",
+      },
+    });
+  });
+  await page.route("https://api.example.test/api/v1/uploads/multipart-upload/complete", (route) => {
+    completedParts = (route.request().postDataJSON() as { parts: Array<{ part_number: number; etag: string }> }).parts;
+    return route.fulfill({ json: { id: "uploaded-node" } });
+  });
+
+  await page.goto(`/projects/${projectId}`);
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "large-file.bin",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from([1]),
+  });
+
+  await expect.poll(() => uploadedParts).toBe(1);
+  await expect.poll(() => completedParts).toEqual([{ part_number: 1, etag: '"etag-1"' }]);
+  await expect(page.getByText("已完成", { exact: true })).toBeVisible();
 });
 
 test("storage backends can be edited and explain why referenced entries cannot be deleted", async ({ page }) => {

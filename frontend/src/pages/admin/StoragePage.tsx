@@ -176,6 +176,13 @@ function OSSConfigurationHelp({ backend, open, onClose }: { backend: StorageBack
           description="生产环境不要使用 * 作为 Origin。若有多个可信前端域名，请逐一添加精确的 HTTPS Origin。系统设置中的 API CORS 与此处的 OSS Bucket CORS 是两套独立配置，两者都必须正确。"
           className="oss-help-note"
         />
+        <Alert
+          type="info"
+          showIcon
+          title="100 MiB 是分片阈值，不是文件大小上限"
+          description="小文件使用单个预签名 PUT；达到 100 MiB 后自动切换为预签名 Multipart Upload，默认按 16 MiB 分片并发上传。两种方式的数据都由浏览器直接发送到 OSS，不经过 AltasCI 后端中转。"
+          className="oss-help-note"
+        />
 
         <Typography.Title level={5}>3. 核对 Endpoint 与网络</Typography.Title>
         <Descriptions bordered size="small" column={1} className="oss-help-details">

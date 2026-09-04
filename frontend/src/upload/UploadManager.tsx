@@ -24,7 +24,7 @@ type CreateResult = {
   upload_type: "local" | "single" | "multipart";
   url?: string;
   method?: string;
-  headers?: Record<string, string>;
+  headers?: Record<string, string> | null;
   part_size?: number;
   part_count?: number;
 };
@@ -60,7 +60,7 @@ export function UploadProvider({ children }: PropsWithChildren) {
       if (session.upload_type === "local" || session.upload_type === "single") {
 		const headers = session.upload_type === "local"
 			? { "Content-Type": item.file.type || "application/octet-stream", "X-CSRF-Token": await currentCSRF() }
-			: session.headers ?? {};
+			: uploadHeaders(session.headers);
 		await uploadBlob(session.url!, session.method ?? "PUT", headers, item.file, session.upload_type === "local", controller.signal, (uploaded) => update(item.id, { uploaded, speed: bytesPerSecond(uploaded, started) }));
         update(item.id, { uploaded: item.file.size, speed: bytesPerSecond(item.file.size, started), status: "completing" });
         await api.request(`/api/v1/uploads/${session.upload_id}/complete`, { method: "POST", body: JSON.stringify({ parts: [] }), signal: controller.signal });
@@ -147,7 +147,7 @@ async function uploadMultipart(item: UploadItem, session: CreateResult, signal: 
   // Presign and consume at most 100 parts at a time. This keeps thousands of
   // short-lived signed URLs from being minted up front for very large files.
   for (let offset = 0; offset < numbers.length; offset += 100) {
-    const result = await api.request<{ parts: Array<{ part_number: number; url: string; method: string; headers: Record<string, string> }> }>(`/api/v1/uploads/${session.upload_id}/parts/presign`, {
+    const result = await api.request<{ parts: Array<{ part_number: number; url: string; method: string; headers?: Record<string, string> | null }> }>(`/api/v1/uploads/${session.upload_id}/parts/presign`, {
       method: "POST", body: JSON.stringify({ part_numbers: numbers.slice(offset, offset + 100) }), signal,
     });
     let cursor = 0;
@@ -160,7 +160,7 @@ async function uploadMultipart(item: UploadItem, session: CreateResult, signal: 
       let response: Response | undefined;
       for (let attempt = 0; attempt < 3; attempt++) {
         if (attempt) progress(uploaded, true);
-        try { response = await fetch(target.url, { method: target.method, headers: target.headers, body: blob, signal }); }
+        try { response = await fetch(target.url, { method: target.method, headers: uploadHeaders(target.headers), body: blob, signal }); }
         catch (error) { if (signal.aborted || attempt === 2) throw error; }
 		if (response?.ok) break;
       }
@@ -176,6 +176,10 @@ async function uploadMultipart(item: UploadItem, session: CreateResult, signal: 
   }
   completed.sort((a, b) => a.part_number - b.part_number);
   await api.request(`/api/v1/uploads/${session.upload_id}/complete`, { method: "POST", body: JSON.stringify({ parts: completed }), signal });
+}
+
+function uploadHeaders(headers: Record<string, string> | null | undefined): Record<string, string> {
+  return headers ?? {};
 }
 
 function bytesPerSecond(bytes: number, started: number) { return bytes / Math.max(0.001, (performance.now() - started) / 1000); }

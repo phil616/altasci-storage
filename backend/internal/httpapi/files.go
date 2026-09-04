@@ -196,7 +196,7 @@ func (s *Server) createUpload(w http.ResponseWriter, r *http.Request) {
 	} else if uploadType == "single" {
 		response["url"] = target.URL
 		response["method"] = target.Method
-		response["headers"] = target.Headers
+		response["headers"] = presentUploadHeaders(target.Headers)
 		response["presign_expires_at"] = target.ExpiresAt.UTC().Format(time.RFC3339)
 	} else {
 		partSize := multipartPartSize(in.Size)
@@ -268,9 +268,19 @@ func (s *Server) presignParts(w http.ResponseWriter, r *http.Request) {
 			writeError(w, r, 502, "STORAGE_PROVIDER_ERROR", "A part URL could not be generated.")
 			return
 		}
-		parts = append(parts, map[string]any{"part_number": number, "url": target.URL, "method": target.Method, "headers": target.Headers, "expires_at": target.ExpiresAt.UTC().Format(time.RFC3339)})
+		parts = append(parts, map[string]any{"part_number": number, "url": target.URL, "method": target.Method, "headers": presentUploadHeaders(target.Headers), "expires_at": target.ExpiresAt.UTC().Format(time.RFC3339)})
 	}
 	writeJSON(w, 200, map[string]any{"parts": parts})
+}
+
+// presentUploadHeaders keeps the HTTP contract stable when a provider does
+// not require any signed headers. A nil Go map would otherwise be serialized
+// as JSON null, which is not a valid RequestInit.headers value in browsers.
+func presentUploadHeaders(headers map[string]string) map[string]string {
+	if headers == nil {
+		return map[string]string{}
+	}
+	return headers
 }
 
 func (s *Server) localUpload(w http.ResponseWriter, r *http.Request) {
