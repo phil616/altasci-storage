@@ -1,0 +1,13 @@
+.DS_Store
+.idea/
+.vscode/
+dist/
+backend/altasci-server
+backend/config.toml
+backend/data/
+backend/coverage.out
+frontend/node_modules/
+frontend/dist/
+frontend/playwright-report/
+frontend/test-results/
+*.log

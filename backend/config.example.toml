@@ -1,0 +1,9 @@
+[server]
+listen = "127.0.0.1:8080"
+
+[database]
+path = "./data/altasci-network-storage.db"
+
+[security]
+master_key_file = "./data/master.key"
+
