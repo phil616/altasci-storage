@@ -21,8 +21,6 @@ main:
     - name: 构建并部署 AltasCI Storage
       docker:
         image: node:20
-        volumes:
-          - altasci-storage-npm:/root/.npm:rw
 
       lock:
         key: altasci-storage-edgeone-pages
