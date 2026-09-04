@@ -1,0 +1,110 @@
+# =============================================================================
+# AltasCI Storage 静态前端 - EdgeOne Pages 标准化生产流水线替代配置
+# =============================================================================
+#
+# 目标：
+#   - main push 后生成生产环境变量、构建并发布到 EdgeOne Pages。
+#   - 缓存 npm 下载内容，减少重复下载。
+#   - 使用部署锁，保证多个 push 不会乱序覆盖线上版本。
+#   - 固定 Node 主版本，并建议进一步固定 EdgeOne CLI 版本。
+#
+# 替换前需要确认：
+#   - package-lock.json 已提交。
+#   - 构建产物目录为 dist/。
+#   - api-server.yml 提供 EDGEONE_API_TOKEN 和 UPLOAD_API_KEY。
+#   - 建议把 EdgeOne CLI 加入 devDependencies，并将下方命令改为
+#     `npx --no-install edgeone ...`，从而严格使用 lockfile 锁定的版本。
+# =============================================================================
+
+main:
+  push:
+    - name: 构建并部署 AltasCI Storage
+      docker:
+        image: node:20
+        volumes:
+          - altasci-storage-npm:/root/.npm:rw
+
+      lock:
+        key: altasci-storage-edgeone-pages
+        wait: true
+        cancel-in-progress: true
+        cancel-in-wait: true
+        expires: 1800
+        timeout: 1800
+
+      stages:
+        - name: 安装前端依赖
+          timeout: 15m
+          script: |
+            set -eu
+            cd frontend
+            npm ci --no-audit --no-fund
+
+        # 每次构建都重新生成文件，避免工作区残留旧配置。
+        # 这里只写入公开的前端构建变量，禁止写入服务器端密钥。
+        - name: 生成生产环境配置并构建
+          timeout: 20m
+          script: |
+            set -eu
+            cd frontend
+            npm run build
+
+        - name: 部署到 EdgeOne Pages
+          image: node:20
+          timeout: 15m
+          imports:
+            - https://cnb.cool/greenshadecapital/dreamreflex/assets-secrets/-/blob/main/api-server.yml
+          script: |
+            set -eu
+            npx --yes edgeone pages deploy ./frontend/dist/ \
+              -n altasci-storage \
+              -t "${EDGEONE_API_TOKEN}"
+
+        - name: 发送 EdgeOne Pages 部署成功通知
+          image: cnbcool/webhook
+          timeout: 3m
+          allowFailure: true
+          imports:
+            - https://cnb.cool/greenshadecapital/dreamreflex/assets-secrets/-/blob/main/api-server.yml
+          settings:
+            urls:
+              - https://api.altasci.com/api/email/send-common
+            method: POST
+            content_type: application/json
+            template: |
+              {
+                "title": "CSA 前端构建部署成功",
+                "content": "仓库 {{ CNB_REPO_SLUG }} 已发布 commit {{ CNB_COMMIT_SHORT }}，地址：{{ CNB_EVENT_URL }}",
+                "message_id": "{{ CNB_BUILD_ID }}-success",
+                "recipients": ["phil616@163.com"]
+              }
+            headers:
+              - "x-api-key=${UPLOAD_API_KEY}"
+            valid_response_codes: [200, 201, 204]
+            skip_verify: false
+            debug: false
+
+      failStages:
+        - name: 发送 EdgeOne Pages 部署失败通知
+          image: cnbcool/webhook
+          timeout: 3m
+          allowFailure: true
+          imports:
+            - https://cnb.cool/greenshadecapital/dreamreflex/assets-secrets/-/blob/main/api-server.yml
+          settings:
+            urls:
+              - https://api.altasci.com/api/email/send-common
+            method: POST
+            content_type: application/json
+            template: |
+              {
+                "title": "CSA 前端构建部署失败",
+                "content": "仓库 {{ CNB_REPO_SLUG }} 的 commit {{ CNB_COMMIT_SHORT }} 发布失败。构建信息：{{ CNB_BUILD_FAILED_MSG }}，地址：{{ CNB_EVENT_URL }}",
+                "message_id": "{{ CNB_BUILD_ID }}-failure",
+                "recipients": ["phil616@163.com"]
+              }
+            headers:
+              - "x-api-key=${UPLOAD_API_KEY}"
+            valid_response_codes: [200, 201, 204]
+            skip_verify: false
+            debug: false
