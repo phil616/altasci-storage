@@ -1,85 +1,55 @@
-# AltasCI Network Storage
+# AltasCI 云盘
 
-AltasCI 云盘是一个 SQLite 元数据驱动的虚拟文件系统，文件正文存储在 Local、标准 S3 或 Alibaba Cloud OSS 中。React 前端和 Go API 独立构建、独立部署；S3/OSS 上传下载通过短时预签名 URL 直连，不经过 API 服务器。
+AltasCI 云盘是一个面向企业内部使用的文件管理系统。SQLite 保存用户、权限、目录和文件元数据，文件内容可存储在本地目录、兼容 S3 的对象存储或阿里云 OSS。前端与后端独立构建和部署；S3/OSS 上传下载使用短时预签名 URL。
 
-## 项目结构
+## 主要能力
 
-- `backend/`：Go 控制面、SQLite migration、Storage Adapter、后台任务与测试。
-- `frontend/`：React 19 + TypeScript + Vite 8 + Ant Design 6 单页应用。
-- `docs/`：架构、API 与部署说明。
-- `PLAN.md`：V1 设计基线和强制约束。
+- 项目、目录、文件和成员权限管理；
+- Local、S3、Alibaba Cloud OSS 存储后端；
+- 大文件分片上传、范围下载和异步删除；
+- 4 位数字提取码、有效期和公开分享；
+- 本地密码、OIDC、CSRF、限流与审计；
+- React 19 + Ant Design 前端和 Go HTTP API。
 
-## 编译
+## 快速开始
 
-不要用 `go run` 判断项目是否卡死：首次执行会先下载 Go toolchain/modules 并临时编译，在应用真正启动前可能长时间没有日志，而且不会留下可复用二进制。建议从仓库根目录执行：
+需要 Go 1.27+、支持 CGO 的 C 编译器、Node.js 22.12+ 和 npm。
 
 ```bash
 make doctor
 make build
-```
-
-构建产物：
-
-- `dist/altasci-server`：Backend Linux 可执行文件；
-- `frontend/dist/`：Frontend 静态部署文件。
-
-检查二进制：
-
-```bash
-./dist/altasci-server version
-./dist/altasci-server --help
-```
-
-完整依赖、详细构建过程和卡死排查见 [编译与运行文档](docs/build.md)。
-
-## 本地验证
-
-```bash
-cd backend
-go test ./...
-go vet ./...
-
-cd ../frontend
-npm ci
-npm run build
-```
-
-生产基线按 `PLAN.md` 使用 Go 1.27+。前端需要 Node.js 22.12+（建议 Node.js 24）。
-
-S3/OSS 契约测试默认在无凭据环境跳过。要对真实 Private Bucket 执行同一套 Put、Head、Range Download、Delete、Presign 和 Multipart Abort 契约测试，可设置 `ALTASCI_TEST_S3_CONFIG_JSON` / `ALTASCI_TEST_S3_SECRET_JSON` 或对应的 `ALTASCI_TEST_OSS_*` 环境变量。
-
-## 首次初始化
-
-在交互式终端运行：
-
-```bash
-make init INIT_ARGS="--admin-email admin@example.com --public-web-url https://loopback.altasci.com --public-api-url https://loopback-api.altasci.com"
-```
-
-公开 URL 必须是 HTTPS Origin；`http://localhost` 会按 `PLAN.md` 的 HTTPS-only 要求被拒绝。
-
-如果 `config.toml` 不存在，初始化命令会先生成包含安全默认路径的 Bootstrap Config；如需自定义监听地址、数据库或 master key 路径，可以预先复制并修改 `config.example.toml`，或通过 `--config` 指定文件。
-
-密码只从真实 TTY 读取，不接受命令行密码参数，因此不要通过无交互的 CI、IDE Task 输入重定向或后台命令执行首次初始化。初始化会创建 SQLite、forward-only migration、32-byte master key、唯一管理员和精确 API CORS Origin。
-
-随后启动 API：
-
-```bash
+make init INIT_ARGS="--admin-email admin@example.com --public-web-url https://web.example.com --public-api-url https://api.example.com"
 make run
 ```
 
-本地检查:
+`init` 必须在交互式终端运行，密码输入不会回显。它会创建 `backend/config.toml`、SQLite 数据库、master key 和首个管理员。公开 Web/API URL 必须是没有路径和结尾斜杠的 HTTPS Origin。
+
+构建产物：
+
+- `dist/altasci-server`：后端可执行文件；
+- `frontend/dist/`：前端静态文件。
+
+启动后可检查：
+
 ```bash
-sudo cp -r frontend/dist /opt/1panel/www/sites/loopback.altasci.com/index
+curl --fail http://127.0.0.1:8080/health/live
+curl --fail http://127.0.0.1:8080/health/ready
 ```
 
-健康检查：
+生产部署前请修改前端发布目录中的 `/config.json`，并将 `apiBaseUrl` 设置为后端的公开 HTTPS Origin。
+
+## 文档
+
+- [编译、初始化与排错](docs/build.md)
+- [部署、可信 URL 与对象存储 CORS](docs/deployment.md)
+- [架构与安全边界](docs/architecture.md)
+- [HTTP API 使用说明](docs/api.md)
+- [OpenAPI 3.1 规范](docs/openapi.yaml)
+
+## 验证
 
 ```bash
-curl http://127.0.0.1:8080/health/live
-curl http://127.0.0.1:8080/health/ready
+make test
 ```
 
-前端部署时修改 `frontend/public/config.json` 中的 `apiBaseUrl`。该值和后台的公开 Web/API URL、CORS Origin 都必须是无路径、无结尾斜杠的精确 HTTPS Origin，其中不得放入任何存储或 OIDC Secret。
-
-详细步骤见 [部署文档](docs/deployment.md)，API 见 [接口文档](docs/api.md)。
+该命令执行后端测试与静态检查、前端生产构建和浏览器端到端测试。

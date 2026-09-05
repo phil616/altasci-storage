@@ -14,7 +14,7 @@ Frontend 使用一套统一的 Ant Design 6 组件与 Token 主题系统，TanSt
 
 表单负责字段级和跨字段校验，但 Backend 始终重复执行安全校验。公开 URL/CORS 使用精确 HTTPS Origin 输入，可信代理使用可增删的 CIDR 列表；Storage 和 OIDC Secret 只能写入、不能从 API 回显。前端运行时只从同源 `/config.json` 读取公开的 API Origin，不把 Secret 或认证 Token写入 Web Storage。
 
-S3/OSS 的普通上传下载走 Browser ↔ Storage Provider。Backend 只在完成上传时执行 `HEAD` 并校验对象存在且 Size 一致。Local 是明确的数据面例外，通过 Backend 流式传输、临时文件、`fsync` 和 atomic rename 落盘。
+S3/OSS 的普通上传下载走 Browser ↔ Storage Provider。Backend 只在完成上传时执行 `HEAD` 并校验对象存在且 Size 一致。Local 是明确的数据面例外，通过 Backend 流式传输，并使用临时文件、`fsync` 和 atomic rename 提交到配置的文件系统；后端不会区分持久化磁盘与 tmpfs。
 
 ## 权限
 

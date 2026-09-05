@@ -10,7 +10,7 @@ Backend 与 Frontend 必须使用不同构建产物和域名。Frontend `dist/` 
 - Node.js 22.12+（构建 Frontend）；
 - HTTPS-only；
 - 单 Backend 实例；
-- SQLite 和 Local Storage 放在本机持久化磁盘，不放 NFS/SMB；
+- SQLite 和生产用 Local Storage 放在本机持久化磁盘，不放 NFS/SMB；
 - master key 文件权限 `0600`。
 
 ## Bootstrap config
@@ -88,3 +88,5 @@ S3/OSS Bucket 必须保持 Private，并另行配置 Browser CORS：允许 Web O
 4. Local 模式的 storage root。
 
 不能在 WAL 活动时只复制 `.db`，也不能只备份对象存储。丢失 SQLite 会永久丢失文件名、目录、权限和分享关系；丢失 master key 会无法解密 Storage/OIDC Secret。
+
+Local Storage 可以指向 tmpfs，后端不会区分内存和磁盘文件系统。但 tmpfs 卸载或主机重启后，对象会消失而 SQLite 元数据仍然存在，因此只适用于允许丢失数据的测试或临时环境。必须确保 tmpfs 在后端启动前完成挂载，避免路径被自动创建到磁盘。

@@ -114,10 +114,11 @@ curl --fail http://127.0.0.1:8080/health/live
 curl --fail http://127.0.0.1:8080/health/ready
 ```
 
-正常响应都是：
+正常响应分别为：
 
 ```json
 {"status":"ok"}
+{"status":"ready"}
 ```
 
 ## 常见问题

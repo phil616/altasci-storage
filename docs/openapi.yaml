@@ -1,0 +1,1667 @@
+openapi: 3.1.0
+info:
+  title: AltasCI Network Storage API
+  version: 0.1.0
+  description: |
+    HTTP contract implemented by the AltasCI Network Storage Go backend.
+    JSON request bodies are limited to 1 MiB and reject unknown fields.
+    Authenticated unsafe requests require both the session cookie and CSRF token.
+servers:
+  - url: /
+    description: Current backend origin (site.public_api_url)
+tags:
+  - name: Health
+    description: Process and database health probes.
+  - name: Auth
+    description: Password sessions and OpenID Connect login.
+  - name: Projects
+    description: Projects, membership and available storage.
+  - name: Files
+    description: Virtual filesystem nodes and downloads.
+  - name: Uploads
+    description: Local, single-request and multipart upload sessions.
+  - name: Shares
+    description: Authenticated share management.
+  - name: Public shares
+    description: Token-based public share access.
+  - name: Admin users
+    description: Administrator-only user management.
+  - name: Admin storage
+    description: Administrator-only storage backend management.
+  - name: Admin OIDC
+    description: Administrator-only OIDC provider management.
+  - name: Admin settings
+    description: Administrator-only runtime settings.
+security:
+  - sessionCookie: []
+paths:
+  /health/live:
+    get:
+      tags: [Health]
+      operationId: getLiveness
+      summary: Get Liveness
+      security: []
+      responses:
+        '200':
+          description: Process is alive.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthStatus' }
+        default: { $ref: '#/components/responses/Error' }
+  /health/ready:
+    get:
+      tags: [Health]
+      operationId: getReadiness
+      summary: Get Readiness
+      security: []
+      responses:
+        '200':
+          description: SQLite and migrations are ready.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReadyStatus' }
+        '503': { $ref: '#/components/responses/Error' }
+
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: Login
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      requestBody:
+        $ref: '#/components/requestBodies/Login'
+      responses:
+        '200':
+          description: Session established. The session cookie is browser-session-only unless remember is true.
+          headers:
+            Set-Cookie: { $ref: '#/components/headers/SessionCookie' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResponse' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: Logout
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/auth/me:
+    get:
+      tags: [Auth]
+      operationId: getCurrentUser
+      summary: Get Current User
+      responses:
+        '200':
+          description: Current user.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/auth/csrf:
+    get:
+      tags: [Auth]
+      operationId: rotateCsrfToken
+      summary: Rotate Csrf Token
+      responses:
+        '200':
+          description: Rotated CSRF token.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CSRFResponse' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/auth/change-password:
+    post:
+      tags: [Auth]
+      operationId: changePassword
+      summary: Change Password
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChangePasswordRequest' }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/auth/oidc/providers:
+    get:
+      tags: [Auth]
+      operationId: listPublicOidcProviders
+      summary: List Public Oidc Providers
+      security: []
+      responses:
+        '200':
+          description: Enabled OIDC providers.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicOIDCProviderList' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/auth/oidc/{providerID}/start:
+    get:
+      tags: [Auth]
+      operationId: startOidcLogin
+      summary: Start Oidc Login
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ProviderID'
+        - name: return_to
+          in: query
+          schema: { type: string, format: uri }
+        - name: remember
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        '302': { $ref: '#/components/responses/Redirect' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/auth/oidc/{providerID}/callback:
+    get:
+      tags: [Auth]
+      operationId: completeOidcLogin
+      summary: Complete Oidc Login
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ProviderID'
+        - name: state
+          in: query
+          required: true
+          schema: { type: string }
+        - name: code
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '302':
+          description: Session established and browser redirected to return_to.
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+            Set-Cookie: { $ref: '#/components/headers/SessionCookie' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /api/v1/storage-backends:
+    get:
+      tags: [Projects]
+      operationId: listAvailableStorageBackends
+      summary: List Available Storage Backends
+      responses:
+        '200':
+          description: Enabled storage backends without configuration or secrets.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AvailableStorageBackendList' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/projects:
+    get:
+      tags: [Projects]
+      operationId: listProjects
+      summary: List Projects
+      responses:
+        '200':
+          description: Projects visible to the current user.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProjectList' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Projects]
+      operationId: createProject
+      summary: Create Project
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateProjectRequest' }
+      responses:
+        '201':
+          description: Project created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/projects/{projectID}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectID'
+    get:
+      tags: [Projects]
+      operationId: getProject
+      summary: Get Project
+      responses:
+        '200':
+          description: Project details.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [Projects]
+      operationId: updateProject
+      summary: Update Project
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateProjectRequest' }
+      responses:
+        '200':
+          description: Project updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Projects]
+      operationId: deleteProject
+      summary: Delete Project
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      responses:
+        '202':
+          description: Asynchronous deletion accepted.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeletingStatus' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/projects/{projectID}/members:
+    get:
+      tags: [Projects]
+      operationId: listProjectMembers
+      summary: List Project Members
+      parameters: [{ $ref: '#/components/parameters/ProjectID' }]
+      responses:
+        '200':
+          description: Project members.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProjectMemberList' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/projects/{projectID}/members/{userID}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectID'
+      - $ref: '#/components/parameters/UserID'
+    put:
+      tags: [Projects]
+      operationId: putProjectMember
+      summary: Put Project Member
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PutProjectMemberRequest' }
+      responses:
+        '200':
+          description: Member permission set.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProjectMemberResult' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Projects]
+      operationId: deleteProjectMember
+      summary: Delete Project Member
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/projects/{projectID}/nodes:
+    get:
+      tags: [Files]
+      operationId: listNodes
+      summary: List Nodes
+      parameters:
+        - $ref: '#/components/parameters/ProjectID'
+        - name: parent_id
+          in: query
+          description: Empty or omitted lists the project root.
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Child nodes.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NodeList' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/projects/{projectID}/directories:
+    post:
+      tags: [Files]
+      operationId: createDirectory
+      summary: Create Directory
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/ProjectID' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateDirectoryRequest' }
+      responses:
+        '201':
+          description: Directory created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Node' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/projects/{projectID}/uploads:
+    post:
+      tags: [Uploads]
+      operationId: createUpload
+      summary: Create Upload
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/ProjectID' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateUploadRequest' }
+      responses:
+        '201':
+          description: Upload session and delivery instructions created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreateUploadResponse' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /api/v1/nodes/{nodeID}:
+    parameters: [{ $ref: '#/components/parameters/NodeID' }]
+    get:
+      tags: [Files]
+      operationId: getNode
+      summary: Get Node
+      responses:
+        '200':
+          description: Node details.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Node' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [Files]
+      operationId: updateNode
+      summary: Update Node
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateNodeRequest' }
+      responses:
+        '200':
+          description: Node renamed or moved.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Node' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Files]
+      operationId: deleteNode
+      summary: Delete Node
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/nodes/{nodeID}/download:
+    post:
+      tags: [Files]
+      operationId: createDownload
+      summary: Create Download
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/NodeID' }]
+      responses:
+        '200':
+          description: Local API URL or external presigned URL.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DownloadResponse' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/nodes/{nodeID}/content:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+      - $ref: '#/components/parameters/Range'
+    get:
+      tags: [Files]
+      operationId: downloadLocalContent
+      summary: Download Local Content
+      responses:
+        '200': { $ref: '#/components/responses/BinaryContent' }
+        '206': { $ref: '#/components/responses/PartialBinaryContent' }
+        '416': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+    head:
+      tags: [Files]
+      operationId: headLocalContent
+      summary: Head Local Content
+      responses:
+        '200': { $ref: '#/components/responses/BinaryHeaders' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /api/v1/uploads/{uploadID}/parts/presign:
+    post:
+      tags: [Uploads]
+      operationId: presignUploadParts
+      summary: Presign Upload Parts
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/UploadID' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PresignPartsRequest' }
+      responses:
+        '200':
+          description: Presigned multipart upload requests.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PresignPartsResponse' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/uploads/{uploadID}/content:
+    put:
+      tags: [Uploads]
+      operationId: uploadLocalContent
+      summary: Upload Local Content
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/UploadID' }]
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/uploads/{uploadID}/complete:
+    post:
+      tags: [Uploads]
+      operationId: completeUpload
+      summary: Complete Upload
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/UploadID' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CompleteUploadRequest' }
+      responses:
+        '200':
+          description: Upload committed and file node returned.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Node' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/uploads/{uploadID}:
+    delete:
+      tags: [Uploads]
+      operationId: abortUpload
+      summary: Abort Upload
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/UploadID' }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /api/v1/shares:
+    get:
+      tags: [Shares]
+      operationId: listShares
+      summary: List Shares
+      responses:
+        '200':
+          description: Shares visible to the current user.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShareList' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/nodes/{nodeID}/shares:
+    post:
+      tags: [Shares]
+      operationId: createShare
+      summary: Create Share
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/NodeID' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateShareRequest' }
+      responses:
+        '201':
+          description: Share created. URL and optional extraction code are returned only here.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreateShareResponse' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/shares/{shareID}:
+    parameters: [{ $ref: '#/components/parameters/ShareID' }]
+    get:
+      tags: [Shares]
+      operationId: getShare
+      summary: Get Share
+      responses:
+        '200':
+          description: Share details.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Share' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [Shares]
+      operationId: updateShare
+      summary: Update Share
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateShareRequest' }
+      responses:
+        '200':
+          description: Share updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Share' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Shares]
+      operationId: revokeShare
+      summary: Revoke Share
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /api/v1/public/shares/{token}/:
+    get:
+      tags: [Public shares]
+      operationId: getPublicShare
+      summary: Get Public Share
+      security: []
+      parameters: [{ $ref: '#/components/parameters/ShareToken' }]
+      responses:
+        '200':
+          description: Public share metadata.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicShareResponse' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/public/shares/{token}/verify:
+    post:
+      tags: [Public shares]
+      operationId: verifyShareCode
+      summary: Verify Share Code
+      security: []
+      parameters: [{ $ref: '#/components/parameters/ShareToken' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VerifyShareRequest' }
+      responses:
+        '200':
+          description: Short-lived Share Grant issued.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShareGrantResponse' }
+        '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/public/shares/{token}/nodes:
+    get:
+      tags: [Public shares]
+      operationId: listPublicShareNodes
+      summary: List Public Share Nodes
+      security: [{ shareGrant: [] }, {}]
+      parameters:
+        - $ref: '#/components/parameters/ShareToken'
+        - name: parent_id
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Nodes inside the shared subtree.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NodeList' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/public/shares/{token}/nodes/{nodeID}/download:
+    post:
+      tags: [Public shares]
+      operationId: createPublicDownload
+      summary: Create Public Download
+      security: [{ shareGrant: [] }, {}]
+      parameters:
+        - $ref: '#/components/parameters/ShareToken'
+        - $ref: '#/components/parameters/NodeID'
+      responses:
+        '200':
+          description: Local API URL or short-lived external presigned URL.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DownloadResponse' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/public/shares/{token}/nodes/{nodeID}/content:
+    get:
+      tags: [Public shares]
+      operationId: downloadPublicLocalContent
+      summary: Download Public Local Content
+      security: [{ shareGrant: [] }, {}]
+      parameters:
+        - $ref: '#/components/parameters/ShareToken'
+        - $ref: '#/components/parameters/NodeID'
+        - $ref: '#/components/parameters/Range'
+      responses:
+        '200': { $ref: '#/components/responses/BinaryContent' }
+        '206': { $ref: '#/components/responses/PartialBinaryContent' }
+        '416':
+          description: Invalid byte range.
+        default: { $ref: '#/components/responses/Error' }
+
+  /api/v1/admin/users:
+    get:
+      tags: [Admin users]
+      operationId: adminListUsers
+      summary: Admin List Users
+      responses:
+        '200':
+          description: All users.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserList' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Admin users]
+      operationId: adminCreateUser
+      summary: Admin Create User
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateUserRequest' }
+      responses:
+        '201':
+          description: User created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/admin/users/{userID}:
+    parameters: [{ $ref: '#/components/parameters/UserID' }]
+    get:
+      tags: [Admin users]
+      operationId: adminGetUser
+      summary: Admin Get User
+      responses:
+        '200':
+          description: User details.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [Admin users]
+      operationId: adminUpdateUser
+      summary: Admin Update User
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateUserRequest' }
+      responses:
+        '200':
+          description: User updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/admin/users/{userID}/reset-password:
+    post:
+      tags: [Admin users]
+      operationId: adminResetUserPassword
+      summary: Admin Reset User Password
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/UserID' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordRequest' }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/admin/users/{userID}/revoke-sessions:
+    post:
+      tags: [Admin users]
+      operationId: adminRevokeUserSessions
+      summary: Admin Revoke User Sessions
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/UserID' }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/admin/transfer:
+    post:
+      tags: [Admin users]
+      operationId: adminTransferRole
+      summary: Admin Transfer Role
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TransferAdminRequest' }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /api/v1/admin/storage-backends:
+    get:
+      tags: [Admin storage]
+      operationId: adminListStorageBackends
+      summary: Admin List Storage Backends
+      responses:
+        '200':
+          description: All storage backends without plaintext secrets.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StorageBackendList' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Admin storage]
+      operationId: adminCreateStorageBackend
+      summary: Admin Create Storage Backend
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateStorageBackendRequest' }
+      responses:
+        '201':
+          description: Storage backend created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StorageBackend' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/admin/storage-backends/{backendID}:
+    parameters: [{ $ref: '#/components/parameters/BackendID' }]
+    get:
+      tags: [Admin storage]
+      operationId: adminGetStorageBackend
+      summary: Admin Get Storage Backend
+      responses:
+        '200':
+          description: Storage backend without plaintext secret.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StorageBackend' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [Admin storage]
+      operationId: adminUpdateStorageBackend
+      summary: Admin Update Storage Backend
+      description: Type cannot be changed. Omit secret to retain the current credentials.
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateStorageBackendRequest' }
+      responses:
+        '200':
+          description: Storage backend updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StorageBackend' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Admin storage]
+      operationId: adminDeleteStorageBackend
+      summary: Admin Delete Storage Backend
+      description: Fails while any project or blob record references this backend.
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '409': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/admin/storage-backends/{backendID}/test:
+    post:
+      tags: [Admin storage]
+      operationId: adminTestStorageBackend
+      summary: Admin Test Storage Backend
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/BackendID' }]
+      responses:
+        '200':
+          description: PUT, HEAD, GET and DELETE succeeded.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthStatus' }
+        '502': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /api/v1/admin/settings:
+    get:
+      tags: [Admin settings]
+      operationId: adminGetSettings
+      summary: Admin Get Settings
+      responses:
+        '200':
+          description: All runtime settings.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Settings' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [Admin settings]
+      operationId: adminUpdateSettings
+      summary: Admin Update Settings
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Settings' }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /api/v1/admin/oidc-providers:
+    get:
+      tags: [Admin OIDC]
+      operationId: adminListOidcProviders
+      summary: Admin List Oidc Providers
+      responses:
+        '200':
+          description: All OIDC providers without client secrets.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OIDCProviderList' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Admin OIDC]
+      operationId: adminCreateOidcProvider
+      summary: Admin Create Oidc Provider
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OIDCProviderInput' }
+      responses:
+        '201':
+          description: OIDC provider created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OIDCProvider' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/admin/oidc-providers/{providerID}:
+    parameters: [{ $ref: '#/components/parameters/ProviderID' }]
+    get:
+      tags: [Admin OIDC]
+      operationId: adminGetOidcProvider
+      summary: Admin Get Oidc Provider
+      responses:
+        '200':
+          description: OIDC provider without client secret.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OIDCProvider' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [Admin OIDC]
+      operationId: adminUpdateOidcProvider
+      summary: Admin Update Oidc Provider
+      description: Full update. An empty client_secret retains the current secret.
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OIDCProviderInput' }
+      responses:
+        '200':
+          description: OIDC provider updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OIDCProvider' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Admin OIDC]
+      operationId: adminDeleteOidcProvider
+      summary: Admin Delete Oidc Provider
+      description: The provider must be disabled before deletion.
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '409': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/admin/oidc-providers/{providerID}/test:
+    post:
+      tags: [Admin OIDC]
+      operationId: adminTestOidcProvider
+      summary: Admin Test Oidc Provider
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/ProviderID' }]
+      responses:
+        '200':
+          description: OIDC discovery succeeded.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthStatus' }
+        '502': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-altasci_session
+      description: Secure, HttpOnly opaque session cookie.
+    csrfToken:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+      description: Required with an allowed Origin on authenticated POST, PUT, PATCH and DELETE requests. POST, PUT and PATCH must also send a supported Content-Type.
+    shareGrant:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Required only when the share has grant_required=true.
+  parameters:
+    Origin:
+      name: Origin
+      in: header
+      required: true
+      schema: { type: string, format: uri }
+    ProjectID:
+      name: projectID
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    NodeID:
+      name: nodeID
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    UserID:
+      name: userID
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    UploadID:
+      name: uploadID
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ShareID:
+      name: shareID
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    BackendID:
+      name: backendID
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ProviderID:
+      name: providerID
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ShareToken:
+      name: token
+      in: path
+      required: true
+      schema: { type: string }
+    Range:
+      name: Range
+      in: header
+      description: A single RFC 7233 bytes range.
+      schema: { type: string, example: bytes=0-1048575 }
+  headers:
+    Location:
+      description: Redirect target.
+      schema: { type: string, format: uri }
+    SessionCookie:
+      description: The opaque session cookie.
+      schema: { type: string }
+  requestBodies:
+    Login:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/LoginRequest' }
+  responses:
+    NoContent:
+      description: Request completed with no response body.
+    Error:
+      description: Structured API error.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/APIError' }
+    RateLimited:
+      description: Too many attempts.
+      headers:
+        Retry-After:
+          schema: { type: integer, minimum: 1 }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/APIError' }
+    Redirect:
+      description: Browser redirect.
+      headers:
+        Location: { $ref: '#/components/headers/Location' }
+    BinaryHeaders:
+      description: Local object metadata.
+      headers:
+        Content-Length: { schema: { type: integer, format: int64 } }
+        Content-Type: { schema: { type: string } }
+        Content-Disposition: { schema: { type: string } }
+        Accept-Ranges: { schema: { type: string, const: bytes } }
+    BinaryContent:
+      description: Complete local object.
+      headers:
+        Content-Length: { schema: { type: integer, format: int64 } }
+        Content-Disposition: { schema: { type: string } }
+        Accept-Ranges: { schema: { type: string, const: bytes } }
+      content:
+        application/octet-stream:
+          schema: { type: string, format: binary }
+    PartialBinaryContent:
+      description: Requested local object byte range.
+      headers:
+        Content-Length: { schema: { type: integer, format: int64 } }
+        Content-Range: { schema: { type: string } }
+        Accept-Ranges: { schema: { type: string, const: bytes } }
+      content:
+        application/octet-stream:
+          schema: { type: string, format: binary }
+  schemas:
+    APIError:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, request_id]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            request_id: { type: string }
+    HealthStatus:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { type: string, const: ok }
+    ReadyStatus:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { type: string, const: ready }
+    DeletingStatus:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { type: string, const: deleting }
+    CSRFResponse:
+      type: object
+      additionalProperties: false
+      required: [csrf_token]
+      properties:
+        csrf_token: { type: string }
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, format: password }
+        remember: { type: boolean, default: false }
+    LoginResponse:
+      type: object
+      additionalProperties: false
+      required: [user, csrf_token]
+      properties:
+        user: { $ref: '#/components/schemas/User' }
+        csrf_token: { type: string }
+    ChangePasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [current_password, new_password]
+      properties:
+        current_password: { type: string, format: password }
+        new_password: { type: string, format: password, minLength: 12, maxLength: 128 }
+    User:
+      type: object
+      additionalProperties: false
+      required: [id, email, role, write_enabled, status, created_at, updated_at, last_login_at]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        role: { type: string, enum: [admin, user] }
+        write_enabled: { type: boolean }
+        status: { type: string, enum: [active, disabled] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        last_login_at: { type: [string, 'null'], format: date-time }
+    UserList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/User' } }
+    CreateUserRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password, write_enabled]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, format: password, minLength: 12, maxLength: 128 }
+        write_enabled: { type: boolean }
+    UpdateUserRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        email: { type: string, format: email }
+        write_enabled: { type: boolean }
+        status: { type: string, enum: [active, disabled] }
+    PasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [password]
+      properties:
+        password: { type: string, format: password, minLength: 12, maxLength: 128 }
+    TransferAdminRequest:
+      type: object
+      additionalProperties: false
+      required: [new_admin_id, current_password]
+      properties:
+        new_admin_id: { type: string, format: uuid }
+        current_password: { type: string, format: password }
+    Project:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, storage_backend_id, created_by, status, permission, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        storage_backend_id: { type: string, format: uuid }
+        created_by: { type: string, format: uuid }
+        status: { type: string }
+        permission: { type: string, enum: [admin, read, write] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ProjectList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Project' } }
+    CreateProjectRequest:
+      type: object
+      additionalProperties: false
+      required: [name, storage_backend_id]
+      properties:
+        name: { type: string, minLength: 1 }
+        description: { type: string, default: '' }
+        storage_backend_id: { type: string, format: uuid }
+    UpdateProjectRequest:
+      type: object
+      additionalProperties: false
+      required: [name, description]
+      properties:
+        name: { type: string, minLength: 1 }
+        description: { type: string }
+    ProjectMember:
+      type: object
+      additionalProperties: false
+      required: [project_id, user_id, permission, granted_by, created_at, updated_at]
+      properties:
+        project_id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        permission: { type: string, enum: [read, write] }
+        granted_by: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ProjectMemberList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/ProjectMember' } }
+    PutProjectMemberRequest:
+      type: object
+      additionalProperties: false
+      required: [permission]
+      properties:
+        permission: { type: string, enum: [read, write] }
+    ProjectMemberResult:
+      type: object
+      additionalProperties: false
+      required: [project_id, user_id, permission]
+      properties:
+        project_id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        permission: { type: string, enum: [read, write] }
+    Node:
+      type: object
+      additionalProperties: false
+      required: [id, project_id, parent_id, node_type, name, size, mime_type, created_by, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        project_id: { type: string, format: uuid }
+        parent_id: { type: [string, 'null'], format: uuid }
+        node_type: { type: string, enum: [file, directory] }
+        name: { type: string }
+        size: { type: integer, format: int64, minimum: 0 }
+        mime_type: { type: string }
+        created_by: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    NodeList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Node' } }
+    CreateDirectoryRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        parent_id: { type: string, format: uuid, default: '' }
+        name: { type: string, minLength: 1 }
+    UpdateNodeRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string }
+        parent_id:
+          type: string
+          description: Empty string moves the node to the project root.
+    CreateUploadRequest:
+      type: object
+      additionalProperties: false
+      required: [filename, size]
+      properties:
+        parent_id: { type: string, format: uuid, default: '' }
+        filename: { type: string }
+        size: { type: integer, format: int64, minimum: 0, maximum: 5497558138880 }
+        mime_type: { type: string, default: application/octet-stream }
+        overwrite: { type: boolean, default: false }
+    CreateUploadResponse:
+      type: object
+      additionalProperties: false
+      required: [upload_id, upload_type, delivery, expires_at]
+      properties:
+        upload_id: { type: string, format: uuid }
+        upload_type: { type: string, enum: [local, single, multipart] }
+        delivery: { type: string, enum: [local, external] }
+        expires_at: { type: string, format: date-time }
+        url: { type: string, format: uri }
+        method: { type: string }
+        headers: { $ref: '#/components/schemas/HeaderMap' }
+        presign_expires_at: { type: string, format: date-time }
+        part_size: { type: integer, format: int64 }
+        part_count: { type: integer, format: int64 }
+    HeaderMap:
+      type: object
+      additionalProperties: { type: string }
+    PresignPartsRequest:
+      type: object
+      additionalProperties: false
+      required: [part_numbers]
+      properties:
+        part_numbers:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items: { type: integer, format: int32, minimum: 1, maximum: 10000 }
+    PresignedPart:
+      type: object
+      additionalProperties: false
+      required: [part_number, url, method, headers, expires_at]
+      properties:
+        part_number: { type: integer, format: int32, minimum: 1, maximum: 10000 }
+        url: { type: string, format: uri }
+        method: { type: string }
+        headers: { $ref: '#/components/schemas/HeaderMap' }
+        expires_at: { type: string, format: date-time }
+    PresignPartsResponse:
+      type: object
+      additionalProperties: false
+      required: [parts]
+      properties:
+        parts: { type: array, items: { $ref: '#/components/schemas/PresignedPart' } }
+    CompletedPart:
+      type: object
+      additionalProperties: false
+      required: [part_number, etag]
+      properties:
+        part_number: { type: integer, format: int32, minimum: 1, maximum: 10000 }
+        etag: { type: string, minLength: 1 }
+    CompleteUploadRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        parts:
+          type: array
+          description: Required and non-empty for multipart uploads; ignored for local and single uploads.
+          items: { $ref: '#/components/schemas/CompletedPart' }
+    DownloadResponse:
+      type: object
+      additionalProperties: false
+      required: [delivery, url]
+      properties:
+        delivery: { type: string, enum: [local, external] }
+        url: { type: string, format: uri }
+        expires_at: { type: string, format: date-time }
+    Share:
+      type: object
+      required: [id, project_id, target_node_id, created_by, require_code, code_length, expires_at, disabled_at, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        project_id: { type: string, format: uuid }
+        target_node_id: { type: string, format: uuid }
+        created_by: { type: string, format: uuid }
+        require_code: { type: boolean }
+        code_length: { type: integer, enum: [4, 8] }
+        expires_at: { type: [string, 'null'], format: date-time }
+        disabled_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+    ShareList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Share' } }
+    CreateShareRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        require_code: { type: boolean, default: true }
+        expires_at:
+          type: string
+          description: Future RFC3339 time; empty string means no expiration.
+    CreateShareResponse:
+      allOf:
+        - $ref: '#/components/schemas/Share'
+        - type: object
+          required: [url]
+          properties:
+            url: { type: string, format: uri }
+            code: { type: string, pattern: '^[0-9]{4}$' }
+    UpdateShareRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        expires_at:
+          type: string
+          description: Future RFC3339 time; empty string removes expiration.
+        disabled: { type: boolean, description: Revocation is one-way. }
+    PublicShareResponse:
+      type: object
+      additionalProperties: false
+      required: [share, target, grant_required]
+      properties:
+        share: { $ref: '#/components/schemas/Share' }
+        target: { $ref: '#/components/schemas/Node' }
+        grant_required: { type: boolean }
+    VerifyShareRequest:
+      type: object
+      additionalProperties: false
+      required: [code]
+      properties:
+        code: { type: string, pattern: '^(?:[0-9]{4}|[A-Za-z0-9]{8})$' }
+    ShareGrantResponse:
+      type: object
+      additionalProperties: false
+      required: [grant, expires_at]
+      properties:
+        grant: { type: string }
+        expires_at: { type: string, format: date-time }
+    PublicOIDCProvider:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+    PublicOIDCProviderList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/PublicOIDCProvider' } }
+    AvailableStorageBackend:
+      type: object
+      additionalProperties: false
+      required: [id, name, type, enabled]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        type: { type: string, enum: [local, s3, aliyun_oss] }
+        enabled: { type: boolean, const: true }
+    AvailableStorageBackendList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AvailableStorageBackend' } }
+    LocalStorageConfig:
+      type: object
+      additionalProperties: false
+      required: [root_path]
+      properties:
+        root_path: { type: string, description: Absolute local filesystem path. }
+    S3StorageConfig:
+      type: object
+      additionalProperties: false
+      required: [region, bucket]
+      properties:
+        endpoint: { type: string }
+        region: { type: string }
+        bucket: { type: string }
+        prefix: { type: string }
+        force_path_style: { type: boolean, default: false }
+    S3StorageSecret:
+      type: object
+      additionalProperties: false
+      required: [access_key_id, secret_access_key]
+      properties:
+        access_key_id: { type: string }
+        secret_access_key: { type: string, format: password }
+    OSSStorageConfig:
+      type: object
+      additionalProperties: false
+      required: [region, bucket]
+      properties:
+        region: { type: string }
+        endpoint: { type: string }
+        bucket: { type: string }
+        prefix: { type: string }
+        use_cname: { type: boolean, default: false }
+    OSSStorageSecret:
+      type: object
+      additionalProperties: false
+      required: [access_key_id, access_key_secret]
+      properties:
+        access_key_id: { type: string }
+        access_key_secret: { type: string, format: password }
+    CreateStorageBackendRequest:
+      oneOf:
+        - $ref: '#/components/schemas/CreateLocalStorageBackendRequest'
+        - $ref: '#/components/schemas/CreateS3StorageBackendRequest'
+        - $ref: '#/components/schemas/CreateOSSStorageBackendRequest'
+      discriminator:
+        propertyName: type
+        mapping:
+          local: '#/components/schemas/CreateLocalStorageBackendRequest'
+          s3: '#/components/schemas/CreateS3StorageBackendRequest'
+          aliyun_oss: '#/components/schemas/CreateOSSStorageBackendRequest'
+    CreateLocalStorageBackendRequest:
+      type: object
+      additionalProperties: false
+      required: [name, type, enabled, config]
+      properties:
+        name: { type: string }
+        type: { type: string, const: local }
+        enabled: { type: boolean }
+        config: { $ref: '#/components/schemas/LocalStorageConfig' }
+        secret: { type: 'null' }
+    CreateS3StorageBackendRequest:
+      type: object
+      additionalProperties: false
+      required: [name, type, enabled, config, secret]
+      properties:
+        name: { type: string }
+        type: { type: string, const: s3 }
+        enabled: { type: boolean }
+        config: { $ref: '#/components/schemas/S3StorageConfig' }
+        secret: { $ref: '#/components/schemas/S3StorageSecret' }
+    CreateOSSStorageBackendRequest:
+      type: object
+      additionalProperties: false
+      required: [name, type, enabled, config, secret]
+      properties:
+        name: { type: string }
+        type: { type: string, const: aliyun_oss }
+        enabled: { type: boolean }
+        config: { $ref: '#/components/schemas/OSSStorageConfig' }
+        secret: { $ref: '#/components/schemas/OSSStorageSecret' }
+    UpdateStorageBackendRequest:
+      type: object
+      additionalProperties: false
+      required: [name, enabled, config]
+      properties:
+        name: { type: string }
+        enabled: { type: boolean }
+        config:
+          anyOf:
+            - $ref: '#/components/schemas/LocalStorageConfig'
+            - $ref: '#/components/schemas/S3StorageConfig'
+            - $ref: '#/components/schemas/OSSStorageConfig'
+        secret:
+          oneOf:
+            - $ref: '#/components/schemas/S3StorageSecret'
+            - $ref: '#/components/schemas/OSSStorageSecret'
+    StorageBackend:
+      type: object
+      additionalProperties: false
+      required: [id, name, type, enabled, config, has_secret, project_count, blob_count, created_at, updated_at, last_test_at, last_test_status, last_test_message]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        type: { type: string, enum: [local, s3, aliyun_oss] }
+        enabled: { type: boolean }
+        config:
+          anyOf:
+            - $ref: '#/components/schemas/LocalStorageConfig'
+            - $ref: '#/components/schemas/S3StorageConfig'
+            - $ref: '#/components/schemas/OSSStorageConfig'
+        has_secret: { type: boolean }
+        project_count: { type: integer, minimum: 0 }
+        blob_count: { type: integer, minimum: 0 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        last_test_at: { type: [string, 'null'], format: date-time }
+        last_test_status: { type: [string, 'null'] }
+        last_test_message: { type: [string, 'null'] }
+    StorageBackendList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/StorageBackend' } }
+    OIDCProviderInput:
+      type: object
+      additionalProperties: false
+      required: [name, issuer, client_id, scopes, enabled, auto_create_user, auto_link_verified_email, allowed_email_domains]
+      properties:
+        name: { type: string }
+        issuer: { type: string, format: uri }
+        client_id: { type: string, description: Required by the backend when enabled is true. }
+        client_secret: { type: string, format: password, description: Empty or omitted retains the existing secret on update. }
+        scopes: { type: string, default: openid email profile }
+        enabled: { type: boolean }
+        auto_create_user: { type: boolean }
+        auto_link_verified_email: { type: boolean }
+        allowed_email_domains: { type: array, items: { type: string } }
+    OIDCProvider:
+      type: object
+      additionalProperties: false
+      required: [id, name, issuer, client_id, has_client_secret, scopes, enabled, auto_create_user, auto_link_verified_email, allowed_email_domains, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        issuer: { type: string, format: uri }
+        client_id: { type: string }
+        has_client_secret: { type: boolean }
+        scopes: { type: string }
+        enabled: { type: boolean }
+        auto_create_user: { type: boolean }
+        auto_link_verified_email: { type: boolean }
+        allowed_email_domains: { type: array, items: { type: string } }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    OIDCProviderList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/OIDCProvider' } }
+    LoginRateLimit:
+      type: object
+      additionalProperties: false
+      required: [attempts, window_seconds, cooldown_seconds]
+      properties:
+        attempts: { type: integer, minimum: 1 }
+        window_seconds: { type: integer, minimum: 10 }
+        cooldown_seconds: { type: integer, minimum: 10 }
+    ShareRateLimit:
+      type: object
+      additionalProperties: false
+      required: [ip_attempts, ip_window_seconds, ip_ban_seconds, escalated_ban_seconds, share_attempts, share_window_seconds, share_ban_seconds]
+      properties:
+        ip_attempts: { type: integer, minimum: 1 }
+        ip_window_seconds: { type: integer, minimum: 10 }
+        ip_ban_seconds: { type: integer, minimum: 10 }
+        escalated_ban_seconds: { type: integer, minimum: 10 }
+        share_attempts: { type: integer, minimum: 1 }
+        share_window_seconds: { type: integer, minimum: 10 }
+        share_ban_seconds: { type: integer, minimum: 10 }
+    Settings:
+      type: object
+      additionalProperties: false
+      properties:
+        site.public_web_url: { type: string, format: uri }
+        site.public_api_url: { type: string, format: uri }
+        cors.allowed_origins:
+          type: array
+          minItems: 1
+          items: { type: string, format: uri }
+        auth.session_idle_timeout: { type: number, minimum: 1, description: Seconds. }
+        auth.session_absolute_timeout: { type: number, minimum: 1, description: Seconds. }
+        storage.upload_presign_ttl: { type: number, minimum: 1, description: Seconds. }
+        storage.download_presign_ttl: { type: number, minimum: 1, description: Seconds. }
+        share.default_expiration: { type: number, minimum: 1, description: Seconds. }
+        share.download_presign_ttl: { type: number, minimum: 1, description: Seconds. }
+        security.trusted_proxy_cidrs: { type: array, items: { type: string } }
+        security.share_rate_limit: { $ref: '#/components/schemas/ShareRateLimit' }
+        security.login_rate_limit: { $ref: '#/components/schemas/LoginRateLimit' }
