@@ -1,13 +1,23 @@
 import { DownloadOutlined, FileOutlined, FolderOpenOutlined, SafetyCertificateOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import { Alert, App, Breadcrumb, Button, Card, Empty, Form, Input, Result, Space, Spin, Table, Tag, Typography, type TableColumnsType } from "antd";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { api } from "../api/client";
+import { api, APIError } from "../api/client";
 import type { Node, Share } from "../api/types";
 
 type Meta = { share: Share; target: Node; grant_required: boolean };
 type PublicCrumb = { id?: string; name: string };
+const publicShareLogo = "https://cdn.altasci.com/library/logos/altasci-logo-abg.png";
+
+function PublicShareBrand() {
+  return (
+    <div className="public-share-brand" aria-label="AltasCI云盘">
+      <img className="public-share-logo" src={publicShareLogo} alt="" width={500} height={500} />
+      <Typography.Text className="public-share-brand-name">AltasCI云盘</Typography.Text>
+    </div>
+  );
+}
 
 export function PublicSharePage() {
   const { shareToken = "" } = useParams();
@@ -15,18 +25,30 @@ export function PublicSharePage() {
   const [grant, setGrant] = useState<string>();
   const [crumbs, setCrumbs] = useState<PublicCrumb[]>([]);
   const [verifyError, setVerifyError] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const verificationInFlight = useRef(false);
+  const automaticVerificationUsed = useRef(false);
   const parent = crumbs.at(-1);
   const meta = useQuery({ queryKey: ["public-share", shareToken], queryFn: () => api.request<Meta>(`/api/v1/public/shares/${shareToken}/`) });
   const authorized = Boolean(meta.data && (!meta.data.grant_required || grant));
   const nodes = useQuery({ queryKey: ["public-nodes", shareToken, parent?.id, grant], enabled: authorized, queryFn: () => api.request<{ items: Node[] }>(`/api/v1/public/shares/${shareToken}/nodes${parent?.id ? `?parent_id=${parent.id}` : ""}`, { headers: grant ? { Authorization: `Bearer ${grant}` } : undefined }) });
 
   async function verify({ code }: { code: string }) {
+    if (verificationInFlight.current) return;
+    verificationInFlight.current = true;
+    setVerifying(true);
     setVerifyError("");
     try {
       const result = await api.request<{ grant: string }>(`/api/v1/public/shares/${shareToken}/verify`, { method: "POST", body: JSON.stringify({ code: code.toUpperCase() }) });
       setGrant(result.grant);
     } catch (error) {
-      setVerifyError(error instanceof Error ? error.message : "提取码错误");
+      const errorMessage = error instanceof APIError && error.code === "SHARE_CODE_INVALID"
+        ? "The share code is invalid."
+        : error instanceof Error ? error.message : "提取码错误";
+      setVerifyError(errorMessage);
+    } finally {
+      verificationInFlight.current = false;
+      setVerifying(false);
     }
   }
 
@@ -57,7 +79,8 @@ export function PublicSharePage() {
     return (
       <main className="public-page public-centered">
         <Card className="share-enterprise-card" variant="borderless">
-          <Space direction="vertical" size={6} className="login-heading share-code-heading"><Typography.Text className="brand-wordmark">AltasCI云盘</Typography.Text><Typography.Title level={2}>{meta.data.target.name}</Typography.Title><Typography.Text type="secondary"><SafetyCertificateOutlined /> 此分享需要提取码</Typography.Text></Space>
+          <PublicShareBrand />
+          <Space direction="vertical" size={6} className="login-heading share-code-heading"><Typography.Title level={2}>{meta.data.target.name}</Typography.Title><Typography.Text type="secondary"><SafetyCertificateOutlined /> 此分享需要提取码</Typography.Text></Space>
           <Form className="share-code-form" layout="vertical" size="large" onFinish={(values) => void verify(values)}>
             <Form.Item
               name="code"
@@ -76,10 +99,15 @@ export function PublicSharePage() {
                 inputMode={numericCode ? "numeric" : "text"}
                 autoComplete="one-time-code"
                 formatter={(value) => numericCode ? value.replace(/\D/g, "") : value.toUpperCase()}
+                onChange={(code) => {
+                  if (!numericCode || automaticVerificationUsed.current) return;
+                  automaticVerificationUsed.current = true;
+                  void verify({ code });
+                }}
               />
             </Form.Item>
             {verifyError && <Form.Item><Alert type="error" showIcon title={verifyError} /></Form.Item>}
-            <Button type="primary" htmlType="submit" block>查看分享</Button>
+            <Button type="primary" htmlType="submit" loading={verifying} block>查看分享</Button>
           </Form>
         </Card>
       </main>
@@ -99,7 +127,7 @@ export function PublicSharePage() {
     <main className="public-page">
       <section className="public-enterprise-browser">
         <div className="enterprise-page-header">
-          <div><Typography.Text className="public-eyebrow">ALTASCI SECURE SHARE</Typography.Text><Typography.Title level={2}>{parent?.name ?? rootName}</Typography.Title><Typography.Paragraph type="secondary">{meta.data.share.expires_at ? `有效期至 ${new Date(meta.data.share.expires_at).toLocaleString()}` : "长期有效"}</Typography.Paragraph><Breadcrumb items={[{ title: <Button type="link" size="small" onClick={() => setCrumbs([])}>{rootName}</Button> }, ...crumbs.map((crumb, index) => ({ title: <Button type="link" size="small" onClick={() => setCrumbs(crumbs.slice(0, index + 1))}>{crumb.name}</Button> }))]} /></div>
+          <div><PublicShareBrand /><Typography.Title level={2}>{parent?.name ?? rootName}</Typography.Title><Typography.Paragraph type="secondary">{meta.data.share.expires_at ? `有效期至 ${new Date(meta.data.share.expires_at).toLocaleString()}` : "长期有效"}</Typography.Paragraph><Breadcrumb items={[{ title: <Button type="link" size="small" onClick={() => setCrumbs([])}>{rootName}</Button> }, ...crumbs.map((crumb, index) => ({ title: <Button type="link" size="small" onClick={() => setCrumbs(crumbs.slice(0, index + 1))}>{crumb.name}</Button> }))]} /></div>
         </div>
         {nodes.error && <Alert type="error" showIcon title="分享内容加载失败" description={nodes.error.message} className="settings-notice" />}
         <Card styles={{ body: { padding: 0 } }}><Table<Node> rowKey="id" loading={nodes.isLoading} columns={columns} dataSource={nodes.data?.items ?? []} pagination={false} locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有可显示的文件" /> }} /></Card>

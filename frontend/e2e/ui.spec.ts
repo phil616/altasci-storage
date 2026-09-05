@@ -305,6 +305,9 @@ test("public share uses large four-digit numeric code inputs", async ({ page }) 
   await page.route("https://api.example.test/api/v1/public/shares/share-token/nodes", (route) => route.fulfill({ json: { items: [] } }));
 
   await page.goto("/s/share-token");
+  await expect(page.getByText("AltasCI云盘", { exact: true })).toBeVisible();
+  await expect(page.locator(".public-share-logo")).toHaveAttribute("src", "https://cdn.altasci.com/library/logos/altasci-logo-abg.png");
+  await expect(page.getByText("ALTASCI SECURE SHARE", { exact: true })).toHaveCount(0);
   await expect(page.getByText("4 位数字提取码", { exact: true })).toBeVisible();
   const inputs = page.locator(".share-code-otp input");
   await expect(inputs).toHaveCount(4);
@@ -316,8 +319,55 @@ test("public share uses large four-digit numeric code inputs", async ({ page }) 
   await inputs.first().fill("A");
   await expect(inputs.first()).toHaveValue("");
   for (const [index, digit] of ["4", "8", "2", "7"].entries()) await inputs.nth(index).fill(digit);
-  await page.getByRole("button", { name: "查看分享" }).click();
   await expect.poll(() => submittedCode).toBe("4827");
+  await expect(page.getByText("AltasCI云盘", { exact: true })).toBeVisible();
+  await expect(page.locator(".public-enterprise-browser .public-share-logo")).toBeVisible();
+});
+
+test("share code automatic verification runs once and preserves manual fallback", async ({ page }) => {
+  const attempts: string[] = [];
+  await page.setViewportSize({ width: 375, height: 760 });
+  await page.route("https://api.example.test/api/v1/public/shares/share-token/", (route) => route.fulfill({
+    json: {
+      share: {
+        id: "share-id",
+        project_id: "project-id",
+        target_node_id: "node-id",
+        require_code: true,
+        code_length: 4,
+        expires_at: "2026-09-11T00:00:00Z",
+        disabled_at: null,
+        created_at: "2026-09-04T00:00:00Z",
+      },
+      target: { id: "node-id", project_id: "project-id", name: "季度报告.pdf", node_type: "file", size: 1024, mime_type: "application/pdf", created_at: "2026-09-04T00:00:00Z", updated_at: "2026-09-04T00:00:00Z" },
+      grant_required: true,
+    },
+  }));
+  await page.route("https://api.example.test/api/v1/public/shares/share-token/verify", (route) => {
+    const code = (route.request().postDataJSON() as { code: string }).code;
+    attempts.push(code);
+    if (attempts.length === 1) return route.fulfill({
+      status: 401,
+      json: { error: { code: "SHARE_CODE_INVALID", message: "The share code is invalid.", request_id: "test" } },
+    });
+    return route.fulfill({ json: { grant: "share-grant", expires_at: "2026-09-04T00:30:00Z" } });
+  });
+  await page.route("https://api.example.test/api/v1/public/shares/share-token/nodes", (route) => route.fulfill({ json: { items: [] } }));
+
+  await page.goto("/s/share-token");
+  const inputs = page.locator(".share-code-otp input");
+  for (const [index, digit] of ["1", "1", "1", "1"].entries()) await inputs.nth(index).fill(digit);
+
+  await expect.poll(() => attempts).toEqual(["1111"]);
+  await expect(page.locator(".share-code-form .ant-alert").getByText("The share code is invalid.", { exact: true })).toBeVisible();
+
+  for (const [index, digit] of ["2", "2", "2", "2"].entries()) await inputs.nth(index).fill(digit);
+  await page.waitForTimeout(200);
+  expect(attempts).toEqual(["1111"]);
+
+  await page.getByRole("button", { name: "查看分享" }).click();
+  await expect.poll(() => attempts).toEqual(["1111", "2222"]);
+  await expect(page.locator(".public-enterprise-browser")).toBeVisible();
 });
 
 test("mobile navigation remains available when the desktop menu is collapsed", async ({ page }) => {
