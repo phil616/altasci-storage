@@ -41,7 +41,7 @@ export function UsersPage() {
   });
 
   const columns: TableColumnsType<User> = [
-    { title: "用户", dataIndex: "email", render: (email: string, user) => <Space><UserOutlined /><div><Typography.Text strong>{email}</Typography.Text><Typography.Text type="secondary" className="table-subtitle">{user.id}</Typography.Text></div></Space> },
+    { title: "用户", dataIndex: "email", render: (email: string, user) => <Space><UserOutlined /><div><Typography.Text strong className="table-primary-text" title={email}>{email}</Typography.Text><Typography.Text type="secondary" className="table-subtitle">{user.id}</Typography.Text></div></Space> },
     { title: "角色", dataIndex: "role", width: 100, responsive: ["md"], render: (role: User["role"]) => role === "admin" ? <Tag color="purple" icon={<SafetyCertificateOutlined />}>管理员</Tag> : <Tag>普通用户</Tag> },
     { title: "全局写权限", dataIndex: "write_enabled", width: 120, responsive: ["lg"], render: (enabled: boolean, user) => <Switch checked={enabled} disabled={user.role === "admin"} loading={patch.isPending && patch.variables?.id === user.id} onChange={(checked) => patch.mutate({ id: user.id, body: { write_enabled: checked } })} /> },
     { title: "状态", dataIndex: "status", width: 100, responsive: ["sm"], render: (status: User["status"]) => status === "active" ? <Tag color="success">正常</Tag> : <Tag color="error">已禁用</Tag> },

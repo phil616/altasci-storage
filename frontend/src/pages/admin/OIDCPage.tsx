@@ -161,7 +161,7 @@ export function OIDCPage() {
   }
 
   const columns: TableColumnsType<Provider> = [
-    { title: "Provider", dataIndex: "name", render: (name: string, provider) => <Space><CloudServerOutlined /><div><Typography.Text strong>{name}</Typography.Text><Typography.Text className="table-subtitle" type="secondary">{provider.issuer}</Typography.Text></div></Space> },
+    { title: "Provider", dataIndex: "name", render: (name: string, provider) => <Space><CloudServerOutlined /><div><Typography.Text strong className="table-primary-text" title={name}>{name}</Typography.Text><Typography.Text className="table-subtitle" type="secondary">{provider.issuer}</Typography.Text></div></Space> },
     { title: "Client ID", dataIndex: "client_id", ellipsis: true, responsive: ["lg"], render: (value: string) => value || <Typography.Text type="secondary">待配置</Typography.Text> },
     { title: "Secret", dataIndex: "has_client_secret", width: 90, responsive: ["md"], render: (saved: boolean) => saved ? <Tag color="success">已保存</Tag> : <Tag>无</Tag> },
     { title: "自动开户", dataIndex: "auto_create_user", width: 100, responsive: ["md"], render: (enabled: boolean) => enabled ? <Tag color="processing">启用</Tag> : "关闭" },

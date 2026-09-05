@@ -6,7 +6,6 @@ import {
   ReloadOutlined,
   SafetyCertificateOutlined,
   SaveOutlined,
-  SettingOutlined,
 } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -217,7 +216,7 @@ export function SettingsPage() {
     <section className="settings-page">
       <div className="enterprise-page-header">
         <div>
-          <Space align="center"><SettingOutlined className="page-title-icon" /><Typography.Title level={2}>系统设置</Typography.Title></Space>
+          <Typography.Title level={2}>系统设置</Typography.Title>
           <Typography.Paragraph type="secondary">管理公开地址、跨域信任、会话、分享、存储签名和安全限流。</Typography.Paragraph>
         </div>
         <Space>

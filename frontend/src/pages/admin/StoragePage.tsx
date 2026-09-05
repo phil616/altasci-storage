@@ -275,7 +275,7 @@ export function StoragePage() {
     {
       title: "名称",
       dataIndex: "name",
-      render: (name: string, backend) => <Space><DatabaseOutlined /><div><Typography.Text strong>{name}</Typography.Text><Typography.Text type="secondary" className="table-subtitle">{backend.id}</Typography.Text></div></Space>,
+      render: (name: string, backend) => <Space><DatabaseOutlined /><div><Typography.Text strong className="table-primary-text" title={name}>{name}</Typography.Text><Typography.Text type="secondary" className="table-subtitle">{backend.id}</Typography.Text></div></Space>,
     },
     { title: "类型", dataIndex: "type", width: 170, responsive: ["md"], render: (type: StorageType) => <Tag icon={type === "local" ? <DatabaseOutlined /> : <CloudServerOutlined />} color={type === "local" ? "default" : "blue"}>{typeLabel(type)}</Tag> },
     { title: "凭据", dataIndex: "has_secret", width: 100, responsive: ["lg"], render: (hasSecret: boolean, backend) => backend.type === "local" ? "不需要" : hasSecret ? <Tag color="success">已保存</Tag> : <Tag color="error">缺失</Tag> },
@@ -352,6 +352,7 @@ export function StoragePage() {
       />
       {list.error && <Alert type="error" showIcon title="存储后端加载失败" description={list.error.message} className="settings-notice" />}
       <Table<StorageBackend>
+        className="storage-table"
         rowKey="id"
         loading={list.isLoading}
         columns={columns}

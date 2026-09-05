@@ -332,6 +332,20 @@ test("mobile navigation remains available when the desktop menu is collapsed", a
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 
+test("wide application header stays aligned with the content container", async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 900 });
+  await page.goto("/projects");
+
+  const [header, content] = await Promise.all([
+    page.locator(".app-header-inner").boundingBox(),
+    page.locator(".app-content").boundingBox(),
+  ]);
+  expect(header).not.toBeNull();
+  expect(content).not.toBeNull();
+  expect(header?.x).toBe(content?.x);
+  expect(header?.width).toBe(content?.width);
+});
+
 test("login page presents the seven-day policy without a logo", async ({ page }) => {
   await page.route("https://api.example.test/api/v1/auth/me", (route) => route.fulfill({
     status: 401,
@@ -350,9 +364,12 @@ test("login page presents the seven-day policy without a logo", async ({ page })
   const loginForm = page.locator(".login-form-panel");
   const [introductionBox, loginBox] = await Promise.all([introduction.boundingBox(), loginForm.boundingBox()]);
   expect(introductionBox?.x).toBeLessThan(loginBox?.x ?? 0);
+  expect(Math.abs((introductionBox?.width ?? 0) - (loginBox?.width ?? 0))).toBeLessThanOrEqual(1);
   await expect(introduction).toHaveCSS("background-color", "rgb(20, 20, 20)");
+  await expect(page.getByText("只允许受限用户访问数据。", { exact: true })).toHaveCSS("color", "rgba(255, 255, 255, 0.72)");
   await expect(page.getByRole("button", { name: /登\s*录/ })).toHaveCSS("background-color", "rgb(20, 20, 20)");
   await expect(page.locator(".brand-mark, .brand-mark-small")).toHaveCount(0);
+  await expect(page.locator('link[rel="icon"]')).toHaveAttribute("href", "https://cdn.altasci.com/library/logos/altasci-slogo-abg.ico");
 });
 
 test("login page remains usable at the minimum supported width", async ({ page }) => {
@@ -367,6 +384,14 @@ test("login page remains usable at the minimum supported width", async ({ page }
   await expect(page.getByLabel("邮箱")).toBeVisible();
   await expect(page.getByLabel("密码")).toBeVisible();
   await expect(page.getByRole("button", { name: /登\s*录/ })).toBeVisible();
+  const [formBox, introductionBox, submitBox] = await Promise.all([
+    page.locator(".login-form-panel").boundingBox(),
+    page.locator(".login-info-panel").boundingBox(),
+    page.getByRole("button", { name: /登\s*录/ }).boundingBox(),
+  ]);
+  expect(formBox?.y).toBeLessThan(introductionBox?.y ?? 0);
+  expect(submitBox?.y ?? 760).toBeLessThan(760);
+  expect((submitBox?.y ?? 760) + (submitBox?.height ?? 0)).toBeLessThanOrEqual(760);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 
@@ -405,5 +430,31 @@ test("admin data tables keep primary actions usable on a narrow screen", async (
   await expect(page.getByRole("heading", { name: "用户管理" })).toBeVisible();
   await expect(page.getByText("member@example.com")).toBeVisible();
   await expect(page.getByRole("button", { name: /操作/ }).last()).toBeVisible();
+  const [adminContent, table] = await Promise.all([
+    page.locator(".admin-content").boundingBox(),
+    page.locator(".ant-table-wrapper").boundingBox(),
+  ]);
+  expect(adminContent?.width ?? 0).toBeGreaterThanOrEqual(296);
+  expect(table?.width ?? 0).toBeGreaterThanOrEqual(296);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
+
+test("primary application pages avoid document-level overflow at the minimum width", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 760 });
+  const pages = [
+    ["/projects", "项目"],
+    ["/shares", "我的分享"],
+    ["/settings/profile", "个人设置"],
+    ["/admin/users", "用户管理"],
+    ["/admin/storage", "存储后端"],
+    ["/admin/oidc", "OpenID Connect"],
+    ["/admin/settings", "系统设置"],
+  ] as const;
+
+  for (const [path, heading] of pages) {
+    await page.goto(path);
+    await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
+    const fitsViewport = await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+    expect(fitsViewport, `${path} should not create document-level horizontal scrolling`).toBe(true);
+  }
 });

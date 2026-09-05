@@ -45,9 +45,9 @@ export function ProjectsPage() {
           {projects.data.items.map((project) => (
             <Col xs={24} md={12} xl={8} key={project.id}>
               <Card hoverable className="project-enterprise-card" onClick={() => navigate(`/projects/${project.id}`)}>
-                <Space align="start" size={14}>
+                <Space align="start" size={14} className="project-card-layout">
                   <Avatar size={46} shape="square" icon={<FolderOpenOutlined />} className="project-avatar" />
-                  <div>
+                  <div className="project-card-copy">
                     <Space wrap><Typography.Title level={4}>{project.name}</Typography.Title><Tag color={project.permission === "admin" ? "purple" : project.permission === "write" ? "blue" : "default"}>{project.permission}</Tag></Space>
                     <Typography.Paragraph type="secondary" ellipsis={{ rows: 2 }}>{project.description || "暂无项目描述"}</Typography.Paragraph>
                     <Typography.Text type="secondary" className="table-subtitle">更新于 {new Date(project.updated_at).toLocaleString()}</Typography.Text>

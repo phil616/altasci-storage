@@ -47,35 +47,37 @@ export function ProtectedLayout() {
   return (
     <Layout className="app-shell">
       <Header className="app-header">
-        <Button type="text" className="brand-button" onClick={() => navigate("/projects")} aria-label="前往项目列表">AltasCI云盘</Button>
-        <Menu mode="horizontal" selectedKeys={selected ? [selected] : []} items={items} onClick={({ key }) => navigate(key)} className="top-menu" />
-        <Dropdown
-          trigger={["click"]}
-          menu={{ items, selectedKeys: selected ? [selected] : [], onClick: ({ key }) => navigate(key) }}
-        >
-          <Button type="text" className="mobile-nav-button" icon={<MenuOutlined />} aria-label="打开主导航" />
-        </Dropdown>
-        <Dropdown
-          trigger={["click"]}
-          menu={{
-            items: [
-              { key: "email", label: auth.user.email, disabled: true },
-              { type: "divider" },
-              { key: "logout", icon: <LogoutOutlined />, label: "退出登录", danger: true },
-            ],
-            onClick: ({ key }) => {
-              if (key === "logout") {
-                void auth.logout()
-                  .then(() => window.location.replace("/login"))
-                  .catch(() => message.error("退出失败，请稍后重试"));
-              }
-            },
-          }}
-        >
-          <Button type="text" className="account-button">
-            <Space><Avatar size="small" icon={<UserOutlined />} /><span className="account-email">{auth.user.email}</span></Space>
-          </Button>
-        </Dropdown>
+        <div className="app-header-inner">
+          <Button type="text" className="brand-button" onClick={() => navigate("/projects")} aria-label="前往项目列表">AltasCI云盘</Button>
+          <Menu mode="horizontal" selectedKeys={selected ? [selected] : []} items={items} onClick={({ key }) => navigate(key)} className="top-menu" />
+          <Dropdown
+            trigger={["click"]}
+            menu={{ items, selectedKeys: selected ? [selected] : [], onClick: ({ key }) => navigate(key) }}
+          >
+            <Button type="text" className="mobile-nav-button" icon={<MenuOutlined />} aria-label="打开主导航" />
+          </Dropdown>
+          <Dropdown
+            trigger={["click"]}
+            menu={{
+              items: [
+                { key: "email", label: auth.user.email, disabled: true },
+                { type: "divider" },
+                { key: "logout", icon: <LogoutOutlined />, label: "退出登录", danger: true },
+              ],
+              onClick: ({ key }) => {
+                if (key === "logout") {
+                  void auth.logout()
+                    .then(() => window.location.replace("/login"))
+                    .catch(() => message.error("退出失败，请稍后重试"));
+                }
+              },
+            }}
+          >
+            <Button type="text" className="account-button" aria-label={`账户菜单：${auth.user.email}`}>
+              <Space size={8}><Avatar size="small" icon={<UserOutlined />} /><span className="account-email">{auth.user.email}</span></Space>
+            </Button>
+          </Dropdown>
+        </div>
       </Header>
       <Content className="app-content"><Outlet /></Content>
     </Layout>
