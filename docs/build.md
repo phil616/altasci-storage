@@ -135,15 +135,15 @@ curl --fail http://127.0.0.1:8080/health/ready
 
 错误会写到 stderr。常见原因是尚未执行 `init`、当前工作目录不对，或 `config.toml` 中的数据库/master key 路径不可访问。使用上面的 `make run` 可确保工作目录正确。
 
-### 前端显示“运行时配置不可用”
+### 前端显示“前端环境配置不可用”
 
-确认 Web 根目录存在 `/config.json`，内容是合法 JSON，且 `apiBaseUrl` 是精确 HTTPS Origin：
+检查启动/构建环境中的 `VITE_API_BASE_URL` 及 `frontend/.env`、`.env.local`、对应模式的环境文件，地址必须是精确 HTTPS Origin：
 
-```json
-{ "apiBaseUrl": "https://web-api.example.com" }
+```dotenv
+VITE_API_BASE_URL=https://web-api.example.com
 ```
 
-不要填写 `http://`、路径、查询参数或结尾斜杠。`config.json` 应设置 `Cache-Control: no-store`，修改后无需重新打包前端；如果同时修改后台的公开 URL，则需要重启 Backend。
+不要填写 `http://`、路径、查询参数或结尾斜杠。没有配置或值为空时默认使用 `https://loopback-api.altasci.com`。进程环境变量会覆盖 `.env` 文件；修改后重启开发服务，或重新构建并部署整个前端目录。如果同时修改后台的公开 URL，则需要重启 Backend。
 
 ### Nginx 中出现 `useAccessibility` / `ESC` JavaScript 错误
 

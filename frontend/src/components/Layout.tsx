@@ -16,6 +16,7 @@ import {
   DatabaseOutlined,
   FolderOpenOutlined,
   LogoutOutlined,
+  KeyOutlined,
   MenuOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
@@ -38,6 +39,7 @@ export function ProtectedLayout() {
   const items: MenuProps["items"] = [
     { key: "/projects", icon: <FolderOpenOutlined />, label: "项目" },
     { key: "/shares", icon: <ShareAltOutlined />, label: "分享" },
+    { key: "/settings/api-keys", icon: <KeyOutlined />, label: "API 密钥" },
     { key: "/settings/profile", icon: <UserOutlined />, label: "个人设置" },
     ...(auth.user.role === "admin" ? [{ key: "/admin/users", icon: <SafetyCertificateOutlined />, label: "管理中心" }] : []),
   ];

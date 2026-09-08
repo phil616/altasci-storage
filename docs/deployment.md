@@ -32,17 +32,31 @@ master_key_file = "./data/master.key"
 
 ## Frontend config
 
-部署 `/config.json`，让浏览器知道应访问哪个 Backend：
+前端通过 Vite 环境变量 `VITE_API_BASE_URL` 读取公开 API Origin。开发和生产构建默认均为 `https://loopback-api.altasci.com`；没有配置或值为空时使用默认值。
 
-```json
-{ "apiBaseUrl": "https://web-api.example.com" }
+在 `frontend/.env` 中覆盖（可从 `.env.example` 复制）：
+
+```dotenv
+VITE_API_BASE_URL=https://web-api.example.com
 ```
 
-`apiBaseUrl` 必须是精确 HTTPS Origin：只包含 `https://`、主机名和可选端口，不允许路径、查询参数、通配符或结尾斜杠。它是公开配置，不是 Secret。文件应返回 `Content-Type: application/json` 和 `Cache-Control: no-store`；Frontend 会在启动前验证它，配置错误时直接显示可操作的诊断页，不会白屏。
+也可以在启动/构建命令中传入环境变量：
+
+```bash
+cd frontend
+VITE_API_BASE_URL=https://web-api.example.com npm run dev
+VITE_API_BASE_URL=https://web-api.example.com npm run build
+```
+
+优先级从高到低：进程环境变量 → `.env.[mode].local` → `.env.[mode]` → `.env.local` → `.env` → 默认地址。文件位于 `frontend/`；`npm run dev` 使用 development 模式，`npm run build` 使用 production 模式。
+
+地址必须是精确 HTTPS Origin：只包含 `https://`、主机名和可选端口，不允许路径、查询参数、通配符或结尾斜杠。启动时会校验地址并在配置错误时显示诊断页。该变量是公开配置，会打包到浏览器代码中。
+
+环境变量在 Vite 启动/构建时读取。修改后需重启开发服务，生产环境需重新构建并部署 `frontend/dist/`；仅修改静态服务器的环境变量或启动 `npm run preview` 不会改变已经构建的 API 地址。
 
 Web server 必须将非静态路径回退到 `index.html`，并设置 HSTS、CSP、`X-Content-Type-Options: nosniff`、Referrer-Policy 和 Permissions-Policy。示例见 `frontend/nginx.conf`。
 
-发布新版本时应完整、原子地替换静态目录，不能只覆盖部分文件。`index.html` 和 `config.json` 必须禁用缓存；带内容 hash 的 `/assets/` 可以长期缓存，但资源不存在时必须返回 `404`，不得回退到 `index.html`。这可避免浏览器把旧入口文件、新 chunks 或 HTML 响应混合使用。发布后如果浏览器仍持有故障版本，应清理站点/CDN缓存并强制刷新一次。
+发布新版本时应完整、原子地替换静态目录，不能只覆盖部分文件。`index.html` 必须禁用缓存；带内容 hash 的 `/assets/` 可以长期缓存，但资源不存在时必须返回 `404`，不得回退到 `index.html`。这可避免浏览器把旧入口文件、新 chunks 或 HTML 响应混合使用。发布后如果浏览器仍持有故障版本，应清理站点/CDN缓存并强制刷新一次。
 
 ## 可信 URL 对照
 
@@ -50,7 +64,7 @@ Web server 必须将非静态路径回退到 `index.html`，并设置 HSTS、CSP
 
 | 位置 | 配置项 | 值 |
 |---|---|---|
-| Frontend `/config.json` | `apiBaseUrl` | `https://web-api.example.com` |
+| Frontend 构建环境 / `.env` | `VITE_API_BASE_URL` | `https://web-api.example.com` |
 | Admin → 系统设置 | 公开 Web URL | `https://web.example.com` |
 | Admin → 系统设置 | 公开 API URL | `https://web-api.example.com` |
 | Admin → 系统设置 | 允许的 CORS Origins | 至少包含 `https://web.example.com` |
@@ -65,7 +79,7 @@ Web server 必须将非静态路径回退到 `index.html`，并设置 HSTS、CSP
 1. 先准备新域名的 DNS、TLS 和反向代理；
 2. 在“允许的 CORS Origins”中同时保留旧 Web Origin并加入新 Web Origin；
 3. 修改公开 Web/API URL并保存，随后重启 Backend；
-4. 修改部署目录的 `/config.json` 并发布新 Frontend；
+4. 修改 `VITE_API_BASE_URL`，重新构建并发布新 Frontend；
 5. 从新域名验证登录、上传、下载和 OIDC，再删除旧 Origin。
 
 ## CORS

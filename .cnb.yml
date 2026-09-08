@@ -45,6 +45,7 @@ main:
           script: |
             set -eu
             cd frontend
+            export VITE_API_BASE_URL=https://storage-api.altasci.com
             npm run build
 
         - name: 部署到 EdgeOne Pages

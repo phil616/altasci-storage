@@ -17,9 +17,13 @@ func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
 		writeRepoError(w, r, err)
 		return
 	}
-	out := make([]any, len(items))
-	for i, p := range items {
-		out[i] = presentProject(p)
+	out := make([]any, 0, len(items))
+	key, apiRequest := apiKeyFrom(r)
+	for _, p := range items {
+		if apiRequest && !key.AllowsProject(p.ID) {
+			continue
+		}
+		out = append(out, presentProject(p))
 	}
 	writeJSON(w, 200, map[string]any{"items": out})
 }

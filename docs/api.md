@@ -58,3 +58,7 @@ Share Grant 应只保存在页面内存中。
 ## 管理接口
 
 `/api/v1/admin/*` 同时要求有效 Session、CSRF（非安全方法）和管理员角色。Storage/OIDC 的 Secret 只允许写入，读取接口只返回 `has_secret` 或 `has_client_secret`。存储后端仍被项目或对象记录引用时不能删除；OIDC Provider 必须先停用再删除。
+
+## 自动化接入
+
+项目和文件接口支持 Bearer API 密钥。密钥管理、Scope、项目范围和 curl 示例见 [API 密钥接入](api-keys.md)。浏览器会话继续使用现有 Cookie + CSRF 认证。

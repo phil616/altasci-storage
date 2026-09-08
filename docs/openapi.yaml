@@ -5,7 +5,9 @@ info:
   description: |
     HTTP contract implemented by the AltasCI Network Storage Go backend.
     JSON request bodies are limited to 1 MiB and reject unknown fields.
-    Authenticated unsafe requests require both the session cookie and CSRF token.
+    Browser unsafe requests require both the session cookie and CSRF token.
+    Project/file automation accepts Bearer API keys, bounded by live user permissions,
+    operation scopes and project range. API key requests do not require CSRF.
 servers:
   - url: /
     description: Current backend origin (site.public_api_url)
@@ -14,6 +16,8 @@ tags:
     description: Process and database health probes.
   - name: Auth
     description: Password sessions and OpenID Connect login.
+  - name: API keys
+    description: Session-only personal automation key management.
   - name: Projects
     description: Projects, membership and available storage.
   - name: Files
@@ -185,8 +189,84 @@ paths:
             Set-Cookie: { $ref: '#/components/headers/SessionCookie' }
         default: { $ref: '#/components/responses/Error' }
 
+  /api/v1/api-keys:
+    get:
+      tags: [API keys]
+      operationId: listAPIKeys
+      summary: List own API key metadata (including expired and revoked keys)
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200':
+          description: No secret or hash is returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/APIKey' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [API keys]
+      operationId: createAPIKey
+      summary: Create a personal API key; the secret is shown only once
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/APIKeyPolicy' }
+      responses:
+        '201':
+          description: Created. Save token now; it cannot be retrieved again.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: '#/components/schemas/APIKey' }
+                  - type: object
+                    required: [token]
+                    properties:
+                      token: { type: string, writeOnly: false }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/api-keys/{keyID}:
+    parameters:
+      - name: keyID
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      tags: [API keys]
+      operationId: updateAPIKey
+      summary: Replace own key policy; revoked keys cannot be restored
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/APIKeyPolicy' }
+      responses:
+        '200':
+          description: Updated metadata without secret.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIKey' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [API keys]
+      operationId: revokeAPIKey
+      summary: Permanently revoke own key (idempotent)
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      responses:
+        '204': { description: Revoked. }
+        default: { $ref: '#/components/responses/Error' }
+
   /api/v1/storage-backends:
     get:
+      security: [{ sessionCookie: [] }, { apiKeyBearer: [] }]
+      x-api-scope: projects:create
       tags: [Projects]
       operationId: listAvailableStorageBackends
       summary: List Available Storage Backends
@@ -199,6 +279,8 @@ paths:
         default: { $ref: '#/components/responses/Error' }
   /api/v1/projects:
     get:
+      security: [{ sessionCookie: [] }, { apiKeyBearer: [] }]
+      x-api-scope: projects:read
       tags: [Projects]
       operationId: listProjects
       summary: List Projects
@@ -210,10 +292,11 @@ paths:
               schema: { $ref: '#/components/schemas/ProjectList' }
         default: { $ref: '#/components/responses/Error' }
     post:
+      security: [{ sessionCookie: [], csrfToken: [] }, { apiKeyBearer: [] }]
+      x-api-scope: projects:create
       tags: [Projects]
       operationId: createProject
       summary: Create Project
-      security: [{ sessionCookie: [], csrfToken: [] }]
       requestBody:
         required: true
         content:
@@ -230,6 +313,8 @@ paths:
     parameters:
       - $ref: '#/components/parameters/ProjectID'
     get:
+      security: [{ sessionCookie: [] }, { apiKeyBearer: [] }]
+      x-api-scope: projects:read
       tags: [Projects]
       operationId: getProject
       summary: Get Project
@@ -241,10 +326,11 @@ paths:
               schema: { $ref: '#/components/schemas/Project' }
         default: { $ref: '#/components/responses/Error' }
     patch:
+      security: [{ sessionCookie: [], csrfToken: [] }, { apiKeyBearer: [] }]
+      x-api-scope: projects:write
       tags: [Projects]
       operationId: updateProject
       summary: Update Project
-      security: [{ sessionCookie: [], csrfToken: [] }]
       requestBody:
         required: true
         content:
@@ -258,10 +344,11 @@ paths:
               schema: { $ref: '#/components/schemas/Project' }
         default: { $ref: '#/components/responses/Error' }
     delete:
+      security: [{ sessionCookie: [], csrfToken: [] }, { apiKeyBearer: [] }]
+      x-api-scope: projects:delete
       tags: [Projects]
       operationId: deleteProject
       summary: Delete Project
-      security: [{ sessionCookie: [], csrfToken: [] }]
       responses:
         '202':
           description: Asynchronous deletion accepted.
@@ -313,6 +400,8 @@ paths:
         default: { $ref: '#/components/responses/Error' }
   /api/v1/projects/{projectID}/nodes:
     get:
+      security: [{ sessionCookie: [] }, { apiKeyBearer: [] }]
+      x-api-scope: files:read
       tags: [Files]
       operationId: listNodes
       summary: List Nodes
@@ -331,10 +420,11 @@ paths:
         default: { $ref: '#/components/responses/Error' }
   /api/v1/projects/{projectID}/directories:
     post:
+      security: [{ sessionCookie: [], csrfToken: [] }, { apiKeyBearer: [] }]
+      x-api-scope: files:write
       tags: [Files]
       operationId: createDirectory
       summary: Create Directory
-      security: [{ sessionCookie: [], csrfToken: [] }]
       parameters: [{ $ref: '#/components/parameters/ProjectID' }]
       requestBody:
         required: true
@@ -350,10 +440,11 @@ paths:
         default: { $ref: '#/components/responses/Error' }
   /api/v1/projects/{projectID}/uploads:
     post:
+      security: [{ sessionCookie: [], csrfToken: [] }, { apiKeyBearer: [] }]
+      x-api-scope: files:write
       tags: [Uploads]
       operationId: createUpload
       summary: Create Upload
-      security: [{ sessionCookie: [], csrfToken: [] }]
       parameters: [{ $ref: '#/components/parameters/ProjectID' }]
       requestBody:
         required: true
@@ -371,6 +462,8 @@ paths:
   /api/v1/nodes/{nodeID}:
     parameters: [{ $ref: '#/components/parameters/NodeID' }]
     get:
+      security: [{ sessionCookie: [] }, { apiKeyBearer: [] }]
+      x-api-scope: files:read
       tags: [Files]
       operationId: getNode
       summary: Get Node
@@ -382,10 +475,11 @@ paths:
               schema: { $ref: '#/components/schemas/Node' }
         default: { $ref: '#/components/responses/Error' }
     patch:
+      security: [{ sessionCookie: [], csrfToken: [] }, { apiKeyBearer: [] }]
+      x-api-scope: files:write
       tags: [Files]
       operationId: updateNode
       summary: Update Node
-      security: [{ sessionCookie: [], csrfToken: [] }]
       requestBody:
         required: true
         content:
@@ -399,19 +493,21 @@ paths:
               schema: { $ref: '#/components/schemas/Node' }
         default: { $ref: '#/components/responses/Error' }
     delete:
+      security: [{ sessionCookie: [], csrfToken: [] }, { apiKeyBearer: [] }]
+      x-api-scope: files:delete
       tags: [Files]
       operationId: deleteNode
       summary: Delete Node
-      security: [{ sessionCookie: [], csrfToken: [] }]
       responses:
         '204': { $ref: '#/components/responses/NoContent' }
         default: { $ref: '#/components/responses/Error' }
   /api/v1/nodes/{nodeID}/download:
     post:
+      security: [{ sessionCookie: [], csrfToken: [] }, { apiKeyBearer: [] }]
+      x-api-scope: files:read
       tags: [Files]
       operationId: createDownload
       summary: Create Download
-      security: [{ sessionCookie: [], csrfToken: [] }]
       parameters: [{ $ref: '#/components/parameters/NodeID' }]
       responses:
         '200':
@@ -425,6 +521,8 @@ paths:
       - $ref: '#/components/parameters/NodeID'
       - $ref: '#/components/parameters/Range'
     get:
+      security: [{ sessionCookie: [] }, { apiKeyBearer: [] }]
+      x-api-scope: files:read
       tags: [Files]
       operationId: downloadLocalContent
       summary: Download Local Content
@@ -434,6 +532,8 @@ paths:
         '416': { $ref: '#/components/responses/Error' }
         default: { $ref: '#/components/responses/Error' }
     head:
+      security: [{ sessionCookie: [] }, { apiKeyBearer: [] }]
+      x-api-scope: files:read
       tags: [Files]
       operationId: headLocalContent
       summary: Head Local Content
@@ -443,10 +543,11 @@ paths:
 
   /api/v1/uploads/{uploadID}/parts/presign:
     post:
+      security: [{ sessionCookie: [], csrfToken: [] }, { apiKeyBearer: [] }]
+      x-api-scope: files:write
       tags: [Uploads]
       operationId: presignUploadParts
       summary: Presign Upload Parts
-      security: [{ sessionCookie: [], csrfToken: [] }]
       parameters: [{ $ref: '#/components/parameters/UploadID' }]
       requestBody:
         required: true
@@ -462,10 +563,11 @@ paths:
         default: { $ref: '#/components/responses/Error' }
   /api/v1/uploads/{uploadID}/content:
     put:
+      security: [{ sessionCookie: [], csrfToken: [] }, { apiKeyBearer: [] }]
+      x-api-scope: files:write
       tags: [Uploads]
       operationId: uploadLocalContent
       summary: Upload Local Content
-      security: [{ sessionCookie: [], csrfToken: [] }]
       parameters: [{ $ref: '#/components/parameters/UploadID' }]
       requestBody:
         required: true
@@ -477,10 +579,11 @@ paths:
         default: { $ref: '#/components/responses/Error' }
   /api/v1/uploads/{uploadID}/complete:
     post:
+      security: [{ sessionCookie: [], csrfToken: [] }, { apiKeyBearer: [] }]
+      x-api-scope: files:write
       tags: [Uploads]
       operationId: completeUpload
       summary: Complete Upload
-      security: [{ sessionCookie: [], csrfToken: [] }]
       parameters: [{ $ref: '#/components/parameters/UploadID' }]
       requestBody:
         required: true
@@ -496,10 +599,11 @@ paths:
         default: { $ref: '#/components/responses/Error' }
   /api/v1/uploads/{uploadID}:
     delete:
+      security: [{ sessionCookie: [], csrfToken: [] }, { apiKeyBearer: [] }]
+      x-api-scope: files:write
       tags: [Uploads]
       operationId: abortUpload
       summary: Abort Upload
-      security: [{ sessionCookie: [], csrfToken: [] }]
       parameters: [{ $ref: '#/components/parameters/UploadID' }]
       responses:
         '204': { $ref: '#/components/responses/NoContent' }
@@ -960,6 +1064,11 @@ paths:
 
 components:
   securitySchemes:
+    apiKeyBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: altasci_<opaque-secret>
+      description: Personal API key; live user permissions intersect with scopes and project range. No CSRF required. Invalid Authorization never falls back to cookies.
     sessionCookie:
       type: apiKey
       in: cookie
@@ -1085,6 +1194,51 @@ components:
         application/octet-stream:
           schema: { type: string, format: binary }
   schemas:
+    APIKeyScope:
+      type: string
+      enum: ['projects:read', 'projects:create', 'projects:write', 'projects:delete', 'files:read', 'files:write', 'files:delete']
+    APIKeyPolicy:
+      type: object
+      additionalProperties: false
+      required: [name, scopes, expires_at]
+      description: Select all_projects (defaults to false) with empty project_ids, or a nonempty list of up to 100 readable projects. Write scopes on selected projects require write permission. projects:create requires all_projects. Project update/delete require an administrator.
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        scopes:
+          type: array
+          minItems: 1
+          maxItems: 7
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/APIKeyScope' }
+        all_projects: { type: boolean }
+        project_ids:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          items: { type: string, format: uuid }
+        expires_at:
+          type: string
+          format: date-time
+          description: Future RFC3339 timestamp within 366 days.
+    APIKey:
+      type: object
+      required: [id, name, token_prefix, scopes, all_projects, project_ids, created_at, updated_at, expires_at, last_used_at, revoked_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        token_prefix: { type: string, description: Non-secret identification prefix. }
+        scopes:
+          type: array
+          items: { $ref: '#/components/schemas/APIKeyScope' }
+        all_projects: { type: boolean }
+        project_ids:
+          type: array
+          items: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        last_used_at: { type: [string, 'null'], format: date-time }
+        revoked_at: { type: [string, 'null'], format: date-time }
     APIError:
       type: object
       additionalProperties: false

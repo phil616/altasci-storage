@@ -12,7 +12,6 @@ import { UploadProvider } from "./upload/UploadManager";
 import "antd/dist/reset.css";
 import "./styles.css";
 
-type Bootstrap = { apiBaseUrl: string };
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 15_000, retry: 1 } } });
 const root = createRoot(document.getElementById("root")!);
 
@@ -29,26 +28,24 @@ function providers(children: ReactNode) {
 }
 
 function parseAPIBaseUrl(value: unknown) {
-  if (typeof value !== "string") throw new Error("apiBaseUrl 必须是字符串");
+  if (typeof value !== "string") throw new Error("VITE_API_BASE_URL 必须是字符串");
   let parsed: URL;
   try {
     parsed = new URL(value);
   } catch {
-    throw new Error("apiBaseUrl 不是有效 URL");
+    throw new Error("VITE_API_BASE_URL 不是有效 URL");
   }
-  if (parsed.protocol !== "https:") throw new Error("apiBaseUrl 必须使用 HTTPS");
+  if (parsed.protocol !== "https:") throw new Error("VITE_API_BASE_URL 必须使用 HTTPS");
   if (parsed.username || parsed.password || parsed.pathname !== "/" || parsed.search || parsed.hash || parsed.origin !== value) {
-    throw new Error("apiBaseUrl 只能填写 HTTPS Origin，不能包含路径、凭据、查询参数或锚点");
+    throw new Error("VITE_API_BASE_URL 只能填写 HTTPS Origin，不能包含路径、凭据、查询参数或锚点");
   }
   return parsed.origin;
 }
 
-async function bootstrap() {
+function bootstrap() {
   try {
-    const response = await fetch("/config.json", { cache: "no-store" });
-    if (!response.ok) throw new Error(`无法加载 /config.json（HTTP ${response.status}）`);
-    const config = await response.json() as Bootstrap;
-    configureAPI(parseAPIBaseUrl(config.apiBaseUrl));
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || "https://loopback-api.altasci.com";
+    configureAPI(parseAPIBaseUrl(baseUrl));
     root.render(providers(
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
@@ -64,8 +61,8 @@ async function bootstrap() {
       <main className="bootstrap-error">
         <Result
           status="error"
-          title="前端运行配置不可用"
-          subTitle={`${detail}。请检查部署目录中的 config.json。`}
+          title="前端环境配置不可用"
+          subTitle={`${detail}。请检查 VITE_API_BASE_URL，修改后重启开发服务或重新构建并部署前端。`}
           extra={<Button type="primary" onClick={() => void bootstrap()}>重新加载</Button>}
         />
       </main>,

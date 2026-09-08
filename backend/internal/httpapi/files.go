@@ -408,6 +408,10 @@ func (s *Server) abortUpload(w http.ResponseWriter, r *http.Request) {
 		writeRepoError(w, r, repository.ErrForbidden)
 		return
 	}
+	if err := s.authorization.CanWriteProject(r.Context(), u, up.ProjectID); err != nil {
+		writeRepoError(w, r, err)
+		return
+	}
 	blob, err := s.store.BlobByID(r.Context(), up.BlobID)
 	if err == nil && up.UploadType == "multipart" && up.ProviderUploadID.Valid {
 		if adapter, _, e := s.factory.ByID(r.Context(), blob.StorageBackendID); e == nil {

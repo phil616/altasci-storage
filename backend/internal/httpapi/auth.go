@@ -226,6 +226,9 @@ func (s *Server) audit(r *http.Request, action, projectID, targetID string, meta
 	if actorID == "" {
 		actorType = "public"
 	}
+	if key, ok := apiKeyFrom(r); ok {
+		metadata = map[string]any{"api_key_id": key.ID, "details": metadata}
+	}
 	return s.store.Audit(r.Context(), security.NewID(), actorType, actorID, action, projectID, targetID, clientIP(r), requestID(r), metadata)
 }
 func (s *Server) auditUser(r *http.Request, userID, action, projectID, targetID string, metadata any) error {

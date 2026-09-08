@@ -8,7 +8,8 @@ export default defineConfig({
   webServer: deployedBaseURL ? undefined : {
     command: "npm run build && npm run preview -- --host 127.0.0.1 --port 4173",
     url: "http://127.0.0.1:4173",
-    reuseExistingServer: true,
+    reuseExistingServer: false,
+    env: { VITE_API_BASE_URL: "https://api.example.test" },
   },
   reporter: "list",
 });

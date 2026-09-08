@@ -96,6 +96,10 @@ func (s *Server) originAllowed(ctx context.Context, origin string) bool {
 
 func (s *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, present := r.Header["Authorization"]; present {
+			s.authenticateAPIKey(w, r, next)
+			return
+		}
 		cookie, err := r.Cookie(sessionCookie)
 		if err != nil {
 			writeError(w, r, http.StatusUnauthorized, "UNAUTHENTICATED", "Authentication is required.")
@@ -130,6 +134,10 @@ func (s *Server) admin(next http.Handler) http.Handler {
 }
 func (s *Server) csrf(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := apiKeyFrom(r); ok {
+			next.ServeHTTP(w, r)
+			return
+		}
 		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
 			next.ServeHTTP(w, r)
 			return

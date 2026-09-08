@@ -77,10 +77,6 @@ const settings = {
 
 test.beforeEach(async ({ page }) => {
   test.skip(!localMock, "Mocked UI checks only run against the local Vite server");
-  await page.route("**/config.json", (route) => route.fulfill({
-    contentType: "application/json",
-    body: JSON.stringify({ apiBaseUrl: "https://api.example.test" }),
-  }));
   await page.route("https://api.example.test/**", (route) => {
     const path = new URL(route.request().url()).pathname;
     const method = route.request().method();
@@ -97,22 +93,13 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test("invalid runtime config shows a diagnostic and supports retry", async ({ page }) => {
-  await page.unroute("**/config.json");
-  let attempts = 0;
-  await page.route("**/config.json", (route) => {
-    attempts += 1;
-    return route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({ apiBaseUrl: attempts === 1 ? "https://api.example.test/" : "https://api.example.test" }),
-    });
-  });
-
+test("starts with the environment API origin without fetching runtime config", async ({ page }) => {
+  const requests: string[] = [];
+  page.on("request", request => requests.push(request.url()));
   await page.goto("/");
-  await expect(page.getByText("前端运行配置不可用")).toBeVisible();
-  await expect(page.getByText(/只能填写 HTTPS Origin/)).toBeVisible();
-  await page.getByRole("button", { name: "重新加载" }).click();
-  await expect(page.getByRole("heading", { name: "项目" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "项目", exact: true })).toBeVisible();
+  expect(requests).toContain("https://api.example.test/api/v1/auth/me");
+  expect(requests.some(url => new URL(url).pathname === "/config.json")).toBe(false);
 });
 
 test("structured settings reject a non-origin API URL", async ({ page }) => {
