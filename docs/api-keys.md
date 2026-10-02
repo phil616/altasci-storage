@@ -53,7 +53,7 @@ UPLOAD=$(curl --fail-with-body -X POST \
   "$API_BASE/api/v1/projects/$PROJECT_ID/uploads")
 UPLOAD_ID=$(printf '%s' "$UPLOAD" | jq -r .upload_id)
 curl --fail-with-body -X PUT -H "Authorization: Bearer $ALTASCI_API_KEY" \
-  --data-binary @hello.txt "$API_BASE/api/v1/uploads/$UPLOAD_ID/content"
+  -H 'Content-Type: text/plain' --data-binary @hello.txt "$API_BASE/api/v1/uploads/$UPLOAD_ID/content"
 curl --fail-with-body -X POST \
   -H "Authorization: Bearer $ALTASCI_API_KEY" -H 'Content-Type: application/json' \
   -d '{"parts":[]}' "$API_BASE/api/v1/uploads/$UPLOAD_ID/complete"
@@ -78,14 +78,20 @@ curl --fail-with-body -X POST \
   "scopes": ["projects:read", "files:read"],
   "all_projects": false,
   "project_ids": ["project-uuid"],
-  "expires_at": "2026-10-01T00:00:00Z"
+  "expires_at": "2027-01-01T00:00:00Z"
 }
 ```
 
-`expires_at` 使用未来 366 天内的 RFC3339 时间。名称为 1–100 个字符。未知字段、未知或重复 Scope、重复项目及矛盾的项目范围会被拒绝。更新是完整替换，多个页面同时保存时后一次成功保存生效。
+示例时间需要替换为调用时的未来时间。`expires_at` 使用未来 366 天内的 RFC3339 时间。名称为 1–100 个字符。未知字段、未知或重复 Scope、重复项目及矛盾的项目范围会被拒绝。更新是完整替换，多个页面同时保存时后一次成功保存生效。
 
 ## 存储与升级
 
 新增 `00002_api_keys.sql` 前向迁移，由现有数据库迁移流程自动应用，无需重建用户或项目。密钥包含 256 位密码学随机数据，数据库仅保存 SHA-256 摘要及用于识别的短前缀，不保存可恢复的明文。列表、更新响应和审计不含密钥明文。创建、修改、撤销记录审计；现有文件/项目审计附带 API 密钥 ID。
 
 实现分为 repository 密钥持久化、HTTP 认证/Scope 与项目范围校验、现有 authorization 用户权限检查。新增可供自动化使用的路由时必须显式配置 `apiAccess(scope)`，管理路由使用 `sessionOnly`，不得仅根据 HTTP 动词推断权限（下载签名也使用 POST）。
+
+## 与 Session 和分享密码的区别
+
+改密码、退出登录、撤销会话不会撤销 API Key；需要单独在 API 密钥页面撤销。`last_used_at` 最多约每分钟更新一次，认证通过后即可能更新，不代表业务操作一定成功。
+
+公开分享的 `?code=...` 是 Web 页面提取码参数，仅由分享页自动提交到 verify 接口；它不是 API Key，也不能替代项目/文件接口的 Bearer 认证。分享管理仍仅允许 Session，详见[分享协议](api.md#分享管理和携带密码)。

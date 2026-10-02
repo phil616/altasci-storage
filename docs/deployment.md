@@ -2,12 +2,12 @@
 
 ## 独立部署
 
-Backend 与 Frontend 必须使用不同构建产物和域名。Frontend `dist/` 不会嵌入 Go binary，Backend 也没有 SPA 静态资源路由。
+Backend 与 Frontend 使用不同构建产物，部署示例采用独立子域名。后端不负责托管前端静态资源；也可由反向代理按路径分流到同一 Origin。Frontend `dist/` 不会嵌入 Go binary，Backend 也没有 SPA 静态资源路由。
 
 生产要求：
 
 - Go 1.27+；
-- Node.js 22.12+（构建 Frontend）；
+- Node.js 20.19+（20.x）或 22.12+（构建 Frontend）；
 - HTTPS-only；
 - 单 Backend 实例；
 - SQLite 和生产用 Local Storage 放在本机持久化磁盘，不放 NFS/SMB；
@@ -26,7 +26,7 @@ path = "./data/altasci-network-storage.db"
 master_key_file = "./data/master.key"
 ```
 
-除监听地址、数据库路径和 master key 路径之外的设置都由 Admin UI 写入 SQLite。首次初始化命令见根目录 README。
+除监听地址、数据库路径和 master key 路径之外的业务设置都由 Admin UI/API 写入 SQLite。完整默认值、运行时范围、修改后的生效方式见[配置参考](configuration.md)。首次初始化命令见根目录 README。
 
 首次执行 `init` 时如果配置文件不存在，服务会生成上述默认 Bootstrap Config。普通启动不会自动创建数据库；如果尚未初始化，会返回可操作的错误提示，避免遗留一个阻止后续初始化的空数据库。
 
@@ -54,7 +54,7 @@ VITE_API_BASE_URL=https://web-api.example.com npm run build
 
 环境变量在 Vite 启动/构建时读取。修改后需重启开发服务，生产环境需重新构建并部署 `frontend/dist/`；仅修改静态服务器的环境变量或启动 `npm run preview` 不会改变已经构建的 API 地址。
 
-Web server 必须将非静态路径回退到 `index.html`，并设置 HSTS、CSP、`X-Content-Type-Options: nosniff`、Referrer-Policy 和 Permissions-Policy。示例见 `frontend/nginx.conf`。
+Web server 必须将非静态路径回退到 `index.html`，并设置 HSTS、CSP、`X-Content-Type-Options: nosniff`、Referrer-Policy 和 Permissions-Policy。示例见 `frontend/nginx.conf`。该文件是起点，需要补充 TLS 证书并按实际资源调整 CSP；当前分享页使用 `https://cdn.altasci.com` Logo，示例的 `img-src` 仅允许 self/data，直接照搬会拦截此图像。Ant Design 运行时样式也需要与部署的 style-src 策略一起验证。
 
 发布新版本时应完整、原子地替换静态目录，不能只覆盖部分文件。`index.html` 必须禁用缓存；带内容 hash 的 `/assets/` 可以长期缓存，但资源不存在时必须返回 `404`，不得回退到 `index.html`。这可避免浏览器把旧入口文件、新 chunks 或 HTML 响应混合使用。发布后如果浏览器仍持有故障版本，应清理站点/CDN缓存并强制刷新一次。
 
@@ -104,3 +104,19 @@ S3/OSS Bucket 必须保持 Private，并另行配置 Browser CORS：允许 Web O
 不能在 WAL 活动时只复制 `.db`，也不能只备份对象存储。丢失 SQLite 会永久丢失文件名、目录、权限和分享关系；丢失 master key 会无法解密 Storage/OIDC Secret。
 
 Local Storage 可以指向 tmpfs，后端不会区分内存和磁盘文件系统。但 tmpfs 卸载或主机重启后，对象会消失而 SQLite 元数据仍然存在，因此只适用于允许丢失数据的测试或临时环境。必须确保 tmpfs 在后端启动前完成挂载，避免路径被自动创建到磁盘。
+
+## 升级与恢复验证
+
+升级前备份 SQLite、master key、TOML 和文件对象。停止旧实例后替换后端二进制；`serve` 会自动应用嵌入的 Goose 前向迁移。前端使用完整新构建目录发布。当前没有应用级自动回滚或数据库降级命令，不应只换回旧二进制就假定已回滚迁移。
+
+恢复时先恢复同一备份集的数据库、master key 和对象，再确认配置路径、文件权限及运行工作目录。启动后依次验证 readiness、登录、项目目录、Local/对象存储上传下载、公开分享及 OIDC。readiness 只查询数据库迁移记录，不代替对象完整性检查。
+
+Local 上传正文经过后端，应将反向代理的请求大小上限、超时和临时缓冲空间配置为能支持实际文件大小；S3/OSS 直传正文经过对象存储。后端 5 TiB 的业务上限不代表代理已允许同样大小。
+
+## Cookie 与域名
+
+Cookie 使用 SameSite=Lax。独立子域名可保持同站，例如 `web.example.com` 与 `api.example.com`；若 Web/API 位于不同站点，仅配置 CORS 和 credentials:include 并不能保证浏览器发送 Cookie，应使用同站域名或同 Origin 代理。API 进程监听普通 HTTP，公网 TLS 由反向代理终止。
+
+## 分享链接与日志
+
+携带密码的 Web 链接形如 `/s/{token}?code=0123`，当前浏览器地址栏保留密码参数。后端应用日志只记录 URL path，并对公开分享 token 脱敏；静态 Web 服务器、反向代理或 CDN 的访问日志有各自的记录规则，应按实际部署决定 querystring 的记录方式。不要把分享 code 当作 API Key。

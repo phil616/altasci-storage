@@ -4,7 +4,12 @@ info:
   version: 0.1.0
   description: |
     HTTP contract implemented by the AltasCI Network Storage Go backend.
-    JSON request bodies are limited to 1 MiB and reject unknown fields.
+    Bodies decoded by decodeJSON are limited to 1 MiB and reject unknown struct fields.
+    Nested storage config/secret and settings values have separate validation.
+    Collection endpoints do not implement pagination. Session-only unsafe operations
+    require an allowed Origin; API key alternatives do not require Origin or CSRF.
+    The Web route /s/{token}?code=... auto-submits a password to verify; code is not
+    a backend query parameter or a create-share request field.
     Browser unsafe requests require both the session cookie and CSRF token.
     Project/file automation accepts Bearer API keys, bounded by live user permissions,
     operation scopes and project range. API key requests do not require CSRF.
@@ -60,7 +65,7 @@ paths:
       security: []
       responses:
         '200':
-          description: SQLite and migrations are ready.
+          description: SQLite can query the applied Goose migration version; storage backends and job progress are not checked.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ReadyStatus' }
@@ -113,6 +118,7 @@ paths:
     get:
       tags: [Auth]
       operationId: rotateCsrfToken
+      description: Rotates the session CSRF token; previous tokens for the same session immediately stop working.
       summary: Rotate Csrf Token
       responses:
         '200':
@@ -125,6 +131,7 @@ paths:
     post:
       tags: [Auth]
       operationId: changePassword
+      description: Requires a local password. Success revokes all user sessions, but does not revoke API keys.
       summary: Change Password
       security: [{ sessionCookie: [], csrfToken: [] }]
       requestBody:
@@ -330,6 +337,7 @@ paths:
       x-api-scope: projects:write
       tags: [Projects]
       operationId: updateProject
+      description: Administrator only. Name is required; omitted description is cleared.
       summary: Update Project
       requestBody:
         required: true
@@ -360,6 +368,7 @@ paths:
     get:
       tags: [Projects]
       operationId: listProjectMembers
+      description: Administrator session only; being the project creator does not grant membership administration.
       summary: List Project Members
       parameters: [{ $ref: '#/components/parameters/ProjectID' }]
       responses:
@@ -376,6 +385,7 @@ paths:
     put:
       tags: [Projects]
       operationId: putProjectMember
+      description: Administrator session only.
       summary: Put Project Member
       security: [{ sessionCookie: [], csrfToken: [] }]
       requestBody:
@@ -393,6 +403,7 @@ paths:
     delete:
       tags: [Projects]
       operationId: deleteProjectMember
+      description: Administrator session only.
       summary: Delete Project Member
       security: [{ sessionCookie: [], csrfToken: [] }]
       responses:
@@ -613,6 +624,7 @@ paths:
     get:
       tags: [Shares]
       operationId: listShares
+      description: Administrators see all shares; other users see only their own. Includes revoked and expired records, without URL or code.
       summary: List Shares
       responses:
         '200':
@@ -625,6 +637,7 @@ paths:
     post:
       tags: [Shares]
       operationId: createShare
+      description: Requires project write access and a session. URL and optional code are returned only once. The Web carry-password checkbox appends code to the returned URL on the client; no backend request flag exists.
       summary: Create Share
       security: [{ sessionCookie: [], csrfToken: [] }]
       parameters: [{ $ref: '#/components/parameters/NodeID' }]
@@ -645,6 +658,7 @@ paths:
     get:
       tags: [Shares]
       operationId: getShare
+      description: Share creator or administrator session only. Does not return URL or plaintext code.
       summary: Get Share
       responses:
         '200':
@@ -656,6 +670,7 @@ paths:
     patch:
       tags: [Shares]
       operationId: updateShare
+      description: Share creator or administrator session only. Revocation is irreversible; code and target cannot be changed.
       summary: Update Share
       security: [{ sessionCookie: [], csrfToken: [] }]
       requestBody:
@@ -673,6 +688,7 @@ paths:
     delete:
       tags: [Shares]
       operationId: revokeShare
+      description: Share creator or administrator session only. A second DELETE of an already revoked share returns 404.
       summary: Revoke Share
       security: [{ sessionCookie: [], csrfToken: [] }]
       responses:
@@ -683,6 +699,7 @@ paths:
     get:
       tags: [Public shares]
       operationId: getPublicShare
+      description: Public metadata, including target name, is available before verification. The code query parameter on the Web page is not accepted as API authorization.
       summary: Get Public Share
       security: []
       parameters: [{ $ref: '#/components/parameters/ShareToken' }]
@@ -697,6 +714,7 @@ paths:
     post:
       tags: [Public shares]
       operationId: verifyShareCode
+      description: Only for code-protected shares. Issues a 30-minute grant. Invalid, revoked or expired shares are handled as invalid codes (401 or 429), unlike the metadata endpoint.
       summary: Verify Share Code
       security: []
       parameters: [{ $ref: '#/components/parameters/ShareToken' }]
@@ -718,6 +736,7 @@ paths:
     get:
       tags: [Public shares]
       operationId: listPublicShareNodes
+      description: Grant required exactly when grant_required is true. Omitted parent_id selects the share target; file shares return one item. Requests must remain in the shared subtree.
       summary: List Public Share Nodes
       security: [{ shareGrant: [] }, {}]
       parameters:
@@ -736,6 +755,7 @@ paths:
     post:
       tags: [Public shares]
       operationId: createPublicDownload
+      description: Grant required exactly when grant_required is true. External URL lifetime is bounded by share.download_presign_ttl and remaining share lifetime.
       summary: Create Public Download
       security: [{ shareGrant: [] }, {}]
       parameters:
@@ -752,6 +772,7 @@ paths:
     get:
       tags: [Public shares]
       operationId: downloadPublicLocalContent
+      description: Grant required exactly when grant_required is true. Local GET only; no HEAD route. Invalid Range returns 416 with no JSON body.
       summary: Download Public Local Content
       security: [{ shareGrant: [] }, {}]
       parameters:
@@ -909,8 +930,8 @@ paths:
     patch:
       tags: [Admin storage]
       operationId: adminUpdateStorageBackend
+      description: Replaces name, enabled and config. Omitted enabled becomes false; omitted or null secret preserves credentials. Does not migrate existing objects.
       summary: Admin Update Storage Backend
-      description: Type cannot be changed. Omit secret to retain the current credentials.
       security: [{ sessionCookie: [], csrfToken: [] }]
       requestBody:
         required: true
@@ -965,6 +986,7 @@ paths:
     patch:
       tags: [Admin settings]
       operationId: adminUpdateSettings
+      description: Saves keys one by one without a transaction; a failing request may partially apply. Read settings again after an error.
       summary: Admin Update Settings
       security: [{ sessionCookie: [], csrfToken: [] }]
       requestBody:
@@ -1021,8 +1043,8 @@ paths:
     patch:
       tags: [Admin OIDC]
       operationId: adminUpdateOidcProvider
+      description: Replaces non-secret fields; omitted booleans become false. Omitted or empty client_secret preserves the previous secret.
       summary: Admin Update Oidc Provider
-      description: Full update. An empty client_secret retains the current secret.
       security: [{ sessionCookie: [], csrfToken: [] }]
       requestBody:
         required: true
@@ -1176,7 +1198,7 @@ components:
         Content-Disposition: { schema: { type: string } }
         Accept-Ranges: { schema: { type: string, const: bytes } }
     BinaryContent:
-      description: Complete local object.
+      description: Complete local object. Actual Content-Type uses the stored MIME type.
       headers:
         Content-Length: { schema: { type: integer, format: int64 } }
         Content-Disposition: { schema: { type: string } }
@@ -1185,7 +1207,7 @@ components:
         application/octet-stream:
           schema: { type: string, format: binary }
     PartialBinaryContent:
-      description: Requested local object byte range.
+      description: Requested local object byte range. Actual Content-Type uses the stored MIME type.
       headers:
         Content-Length: { schema: { type: integer, format: int64 } }
         Content-Range: { schema: { type: string } }
@@ -1320,11 +1342,11 @@ components:
     CreateUserRequest:
       type: object
       additionalProperties: false
-      required: [email, password, write_enabled]
+      required: [email, password]
       properties:
         email: { type: string, format: email }
         password: { type: string, format: password, minLength: 12, maxLength: 128 }
-        write_enabled: { type: boolean }
+        write_enabled: { type: boolean, default: false }
     UpdateUserRequest:
       type: object
       additionalProperties: false
@@ -1376,10 +1398,11 @@ components:
     UpdateProjectRequest:
       type: object
       additionalProperties: false
-      required: [name, description]
+      required: [name]
+      description: Replaces name and description; omitted description is cleared.
       properties:
         name: { type: string, minLength: 1 }
-        description: { type: string }
+        description: { type: string, default: '' }
     ProjectMember:
       type: object
       additionalProperties: false
@@ -1437,7 +1460,7 @@ components:
       additionalProperties: false
       required: [name]
       properties:
-        parent_id: { type: string, format: uuid, default: '' }
+        parent_id: { type: string, default: '', description: 'Directory UUID; omitted or empty means project root.' }
         name: { type: string, minLength: 1 }
     UpdateNodeRequest:
       type: object
@@ -1451,11 +1474,12 @@ components:
     CreateUploadRequest:
       type: object
       additionalProperties: false
-      required: [filename, size]
+      required: [filename]
+      description: Send the actual size explicitly; omission is treated as zero by the backend.
       properties:
-        parent_id: { type: string, format: uuid, default: '' }
+        parent_id: { type: string, default: '', description: 'Directory UUID; omitted or empty means project root.' }
         filename: { type: string }
-        size: { type: integer, format: int64, minimum: 0, maximum: 5497558138880 }
+        size: { type: integer, format: int64, minimum: 0, maximum: 5497558138880, default: 0 }
         mime_type: { type: string, default: application/octet-stream }
         overwrite: { type: boolean, default: false }
     CreateUploadResponse:
@@ -1466,11 +1490,11 @@ components:
         upload_id: { type: string, format: uuid }
         upload_type: { type: string, enum: [local, single, multipart] }
         delivery: { type: string, enum: [local, external] }
-        expires_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time, description: Upload session expiration 24 hours after creation; separate from presigned URL expiry. }
         url: { type: string, format: uri }
         method: { type: string }
         headers: { $ref: '#/components/schemas/HeaderMap' }
-        presign_expires_at: { type: string, format: date-time }
+        presign_expires_at: { type: string, format: date-time, description: Upload session expiration 24 hours after creation; separate from presigned URL expiry. }
         part_size: { type: integer, format: int64 }
         part_count: { type: integer, format: int64 }
     HeaderMap:
@@ -1513,6 +1537,7 @@ components:
     CompleteUploadRequest:
       type: object
       additionalProperties: false
+      description: Finalizes the upload once; repeated completion is a conflict.
       properties:
         parts:
           type: array
@@ -1549,26 +1574,26 @@ components:
       type: object
       additionalProperties: false
       properties:
-        require_code: { type: boolean, default: true }
+        require_code: { type: [boolean, 'null'], default: true, description: Omitted or null requires a code. }
         expires_at:
-          type: string
-          description: Future RFC3339 time; empty string means no expiration.
+          type: [string, 'null']
+          description: Future RFC3339 time; empty string means no expiration; omitted or null uses share.default_expiration (default 7 days).
     CreateShareResponse:
       allOf:
         - $ref: '#/components/schemas/Share'
         - type: object
           required: [url]
           properties:
-            url: { type: string, format: uri }
-            code: { type: string, pattern: '^[0-9]{4}$' }
+            url: { type: string, format: uri, description: 'Web URL /s/{token}, returned only at creation without code query. To carry the password, clients append code with URLSearchParams.' }
+            code: { type: string, pattern: '^[0-9]{4}$', example: '0123', description: Only returned when require_code is true; preserve leading zeros. }
     UpdateShareRequest:
       type: object
       additionalProperties: false
       properties:
         expires_at:
-          type: string
-          description: Future RFC3339 time; empty string removes expiration.
-        disabled: { type: boolean, description: Revocation is one-way. }
+          type: [string, 'null']
+          description: Future RFC3339 time; empty string removes expiration; omitted or null retains the current value.
+        disabled: { type: [boolean, 'null'], description: 'True revokes; false cannot restore a revoked share; omitted or null retains the current state.' }
     PublicShareResponse:
       type: object
       additionalProperties: false
@@ -1582,7 +1607,10 @@ components:
       additionalProperties: false
       required: [code]
       properties:
-        code: { type: string, pattern: '^(?:[0-9]{4}|[A-Za-z0-9]{8})$' }
+        code:
+          type: string
+          example: '0123'
+          description: Trimmed and uppercased before verification. For code_length=4 use digits; for legacy code_length=8 use only 23456789ABCDEFGHJKMNPQRSTUVWXYZ (case-insensitive).
     ShareGrantResponse:
       type: object
       additionalProperties: false
@@ -1620,13 +1648,13 @@ components:
         items: { type: array, items: { $ref: '#/components/schemas/AvailableStorageBackend' } }
     LocalStorageConfig:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [root_path]
       properties:
         root_path: { type: string, description: Absolute local filesystem path. }
     S3StorageConfig:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [region, bucket]
       properties:
         endpoint: { type: string }
@@ -1636,14 +1664,14 @@ components:
         force_path_style: { type: boolean, default: false }
     S3StorageSecret:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [access_key_id, secret_access_key]
       properties:
         access_key_id: { type: string }
         secret_access_key: { type: string, format: password }
     OSSStorageConfig:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [region, bucket]
       properties:
         region: { type: string }
@@ -1653,7 +1681,7 @@ components:
         use_cname: { type: boolean, default: false }
     OSSStorageSecret:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [access_key_id, access_key_secret]
       properties:
         access_key_id: { type: string }
@@ -1672,47 +1700,50 @@ components:
     CreateLocalStorageBackendRequest:
       type: object
       additionalProperties: false
-      required: [name, type, enabled, config]
+      required: [name, type, config]
       properties:
         name: { type: string }
         type: { type: string, const: local }
-        enabled: { type: boolean }
+        enabled: { type: boolean, default: false }
         config: { $ref: '#/components/schemas/LocalStorageConfig' }
-        secret: { type: 'null' }
+        secret: { description: Not required or used by the Local adapter. }
     CreateS3StorageBackendRequest:
       type: object
       additionalProperties: false
-      required: [name, type, enabled, config, secret]
+      required: [name, type, config, secret]
       properties:
         name: { type: string }
         type: { type: string, const: s3 }
-        enabled: { type: boolean }
+        enabled: { type: boolean, default: false }
         config: { $ref: '#/components/schemas/S3StorageConfig' }
         secret: { $ref: '#/components/schemas/S3StorageSecret' }
     CreateOSSStorageBackendRequest:
       type: object
       additionalProperties: false
-      required: [name, type, enabled, config, secret]
+      required: [name, type, config, secret]
       properties:
         name: { type: string }
         type: { type: string, const: aliyun_oss }
-        enabled: { type: boolean }
+        enabled: { type: boolean, default: false }
         config: { $ref: '#/components/schemas/OSSStorageConfig' }
         secret: { $ref: '#/components/schemas/OSSStorageSecret' }
     UpdateStorageBackendRequest:
       type: object
       additionalProperties: false
-      required: [name, enabled, config]
+      required: [name, config]
+      description: Replaces non-secret configuration; omitted enabled becomes false; type cannot be changed.
       properties:
         name: { type: string }
-        enabled: { type: boolean }
+        enabled: { type: boolean, default: false }
         config:
           anyOf:
             - $ref: '#/components/schemas/LocalStorageConfig'
             - $ref: '#/components/schemas/S3StorageConfig'
             - $ref: '#/components/schemas/OSSStorageConfig'
         secret:
-          oneOf:
+          description: Omit or send null to keep existing credentials.
+          anyOf:
+            - type: 'null'
             - $ref: '#/components/schemas/S3StorageSecret'
             - $ref: '#/components/schemas/OSSStorageSecret'
     StorageBackend:
@@ -1746,17 +1777,18 @@ components:
     OIDCProviderInput:
       type: object
       additionalProperties: false
-      required: [name, issuer, client_id, scopes, enabled, auto_create_user, auto_link_verified_email, allowed_email_domains]
+      required: [name, issuer]
+      description: Non-secret fields are replaced on PATCH. Send all desired values; omitted booleans become false. client_id is required when enabled.
       properties:
         name: { type: string }
         issuer: { type: string, format: uri }
         client_id: { type: string, description: Required by the backend when enabled is true. }
         client_secret: { type: string, format: password, description: Empty or omitted retains the existing secret on update. }
         scopes: { type: string, default: openid email profile }
-        enabled: { type: boolean }
-        auto_create_user: { type: boolean }
-        auto_link_verified_email: { type: boolean }
-        allowed_email_domains: { type: array, items: { type: string } }
+        enabled: { type: boolean, default: false }
+        auto_create_user: { type: boolean, default: false }
+        auto_link_verified_email: { type: boolean, default: false }
+        allowed_email_domains: { type: [array, 'null'], items: { type: string }, description: Empty or null means no domain restriction. }
     OIDCProvider:
       type: object
       additionalProperties: false
@@ -1771,7 +1803,7 @@ components:
         enabled: { type: boolean }
         auto_create_user: { type: boolean }
         auto_link_verified_email: { type: boolean }
-        allowed_email_domains: { type: array, items: { type: string } }
+        allowed_email_domains: { type: [array, 'null'], items: { type: string }, description: Empty or null means no domain restriction. }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
     OIDCProviderList:
@@ -1782,7 +1814,8 @@ components:
         items: { type: array, items: { $ref: '#/components/schemas/OIDCProvider' } }
     LoginRateLimit:
       type: object
-      additionalProperties: false
+      additionalProperties: true
+      description: Save requires attempts >= 1 and durations >= 10. Runtime additionally caps attempts at 100 and durations at 86400; out-of-range configuration falls back as a group to 10/600/900.
       required: [attempts, window_seconds, cooldown_seconds]
       properties:
         attempts: { type: integer, minimum: 1 }
@@ -1790,19 +1823,20 @@ components:
         cooldown_seconds: { type: integer, minimum: 10 }
     ShareRateLimit:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [ip_attempts, ip_window_seconds, ip_ban_seconds, escalated_ban_seconds, share_attempts, share_window_seconds, share_ban_seconds]
       properties:
         ip_attempts: { type: integer, minimum: 1 }
         ip_window_seconds: { type: integer, minimum: 10 }
         ip_ban_seconds: { type: integer, minimum: 10 }
-        escalated_ban_seconds: { type: integer, minimum: 10 }
+        escalated_ban_seconds: { type: integer, minimum: 10, description: Must be greater than or equal to ip_ban_seconds. }
         share_attempts: { type: integer, minimum: 1 }
         share_window_seconds: { type: integer, minimum: 10 }
         share_ban_seconds: { type: integer, minimum: 10 }
     Settings:
       type: object
       additionalProperties: false
+      description: PATCH saves supplied keys individually, not atomically. Invalid keys may leave partial updates; GET after errors. Duration values outside runtime ranges fall back to defaults. Public URL changes require a backend restart.
       properties:
         site.public_web_url: { type: string, format: uri }
         site.public_api_url: { type: string, format: uri }
@@ -1810,12 +1844,12 @@ components:
           type: array
           minItems: 1
           items: { type: string, format: uri }
-        auth.session_idle_timeout: { type: number, minimum: 1, description: Seconds. }
-        auth.session_absolute_timeout: { type: number, minimum: 1, description: Seconds. }
-        storage.upload_presign_ttl: { type: number, minimum: 1, description: Seconds. }
-        storage.download_presign_ttl: { type: number, minimum: 1, description: Seconds. }
-        share.default_expiration: { type: number, minimum: 1, description: Seconds. }
-        share.download_presign_ttl: { type: number, minimum: 1, description: Seconds. }
+        auth.session_idle_timeout: { type: number, minimum: 1, default: 86400, description: Seconds. Runtime range 300..2592000; outside this range uses the default. }
+        auth.session_absolute_timeout: { type: number, minimum: 1, default: 604800, description: Seconds. Runtime range 3600..7776000; outside this range uses the default. }
+        storage.upload_presign_ttl: { type: number, minimum: 1, default: 900, description: Seconds. Runtime range 60..3600; outside this range uses the default. }
+        storage.download_presign_ttl: { type: number, minimum: 1, default: 300, description: Seconds. Runtime range 60..3600; outside this range uses the default. }
+        share.default_expiration: { type: number, minimum: 1, default: 604800, description: Seconds. Runtime range 60..315360000; outside this range uses the default. }
+        share.download_presign_ttl: { type: number, minimum: 1, default: 120, description: Seconds. Runtime range 30..600; outside this range uses the default. }
         security.trusted_proxy_cidrs: { type: array, items: { type: string } }
         security.share_rate_limit: { $ref: '#/components/schemas/ShareRateLimit' }
         security.login_rate_limit: { $ref: '#/components/schemas/LoginRateLimit' }

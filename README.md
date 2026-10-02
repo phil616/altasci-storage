@@ -7,14 +7,14 @@ AltasCI 云盘是一个面向企业内部使用的文件管理系统。SQLite �
 - 项目、目录、文件和成员权限管理；
 - Local、S3、Alibaba Cloud OSS 存储后端；
 - 大文件分片上传、范围下载和异步删除；
-- 4 位数字提取码、有效期和公开分享；
+- 4 位数字提取码、有效期和公开分享，可勾选“携带密码”生成自动验证链接；
 - 本地密码、OIDC、CSRF、限流与审计；
 - 用户 API 密钥、操作权限、项目范围、到期和撤销管理；
 - React 19 + Ant Design 前端和 Go HTTP API。
 
 ## 快速开始
 
-需要 Go 1.27+、支持 CGO 的 C 编译器、Node.js 22.12+ 和 npm。
+需要 Go 1.27+、支持 CGO 的 C 编译器、Node.js 20.19+（20.x）或 22.12+ 和 npm。
 
 ```bash
 make doctor
@@ -46,13 +46,16 @@ VITE_API_BASE_URL=https://your-api.example.com npm run dev
 VITE_API_BASE_URL=https://your-api.example.com npm run build
 ```
 
+首次登录后，在管理中心创建并测试一个存储后端，再创建项目、上传文件。初始化仅创建管理员和系统设置，不会预建存储后端或项目。
+
 可参考 `frontend/.env.example`。修改配置后需重启开发服务或重新构建生产版本；详见[部署说明](docs/deployment.md)。
 
 ## 文档
 
 - [编译、初始化与排错](docs/build.md)
 - [部署、可信 URL 与对象存储 CORS](docs/deployment.md)
-- [架构与安全边界](docs/architecture.md)
+- [技术架构、数据模型与安全边界](docs/architecture.md)
+- [配置字段、默认值与生效规则](docs/configuration.md)
 - [自动化 API 密钥接入](docs/api-keys.md)
 - [HTTP API 使用说明](docs/api.md)
 - [OpenAPI 3.1 规范](docs/openapi.yaml)
@@ -63,4 +66,6 @@ VITE_API_BASE_URL=https://your-api.example.com npm run build
 make test
 ```
 
-该命令执行后端测试与静态检查、前端生产构建和浏览器端到端测试。
+先安装前端依赖和 Playwright 浏览器（`cd frontend && npm ci && npx playwright install chromium`），再执行此命令。它执行后端测试与静态检查、前端生产构建和浏览器端到端测试；其中 `TestOpenAPIContract` 核对实际路由与 OpenAPI 的路径/方法、资源响应字段、API Key Scope、设置键和内部引用。
+
+默认浏览器测试使用本地模拟 API；真实部署登录及 S3/OSS 合约测试需要额外环境配置，未配置会跳过，详见[测试说明](docs/build.md#测试范围与文档一致性)。
