@@ -36,6 +36,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { Node, Project, Share, User } from "../api/types";
 import { useAuth } from "../auth/AuthProvider";
+import { ShareCreatedContent } from "../components/ShareCreatedContent";
 import { useUploads } from "../upload/UploadManager";
 
 type Crumb = { id?: string; name: string };
@@ -112,7 +113,7 @@ export function ProjectPage() {
       modal.success({
         title: "分享已创建",
         width: 560,
-        content: <Space direction="vertical" size={16} className="full-width"><Typography.Text type="secondary">提取码只会显示这一次，请与分享链接分别传递。</Typography.Text><Typography.Text copyable code>{result.url}</Typography.Text><div className="share-created-code"><Typography.Text type="secondary">4 位数字提取码</Typography.Text><Typography.Title level={3} copyable={{ text: result.code ?? "" }}>{result.code}</Typography.Title></div></Space>,
+        content: <ShareCreatedContent share={result} />,
       });
     } catch (error) {
       void message.error(error instanceof Error ? error.message : "分享创建失败");

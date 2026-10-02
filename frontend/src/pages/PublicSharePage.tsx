@@ -1,8 +1,8 @@
 import { DownloadOutlined, FileOutlined, FolderOpenOutlined, SafetyCertificateOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import { Alert, App, Breadcrumb, Button, Card, Empty, Form, Input, Result, Space, Spin, Table, Tag, Typography, type TableColumnsType } from "antd";
-import { useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useParams, useSearchParams } from "react-router-dom";
 import { api, APIError } from "../api/client";
 import type { Node, Share } from "../api/types";
 
@@ -21,11 +21,18 @@ function PublicShareBrand() {
 
 export function PublicSharePage() {
   const { shareToken = "" } = useParams();
+  const [searchParams] = useSearchParams();
+  const linkCode = searchParams.get("code") ?? "";
+  return <PublicShareContent key={JSON.stringify([shareToken, linkCode])} shareToken={shareToken} linkCode={linkCode} />;
+}
+
+function PublicShareContent({ shareToken, linkCode }: { shareToken: string; linkCode: string }) {
   const { message } = App.useApp();
   const [grant, setGrant] = useState<string>();
   const [crumbs, setCrumbs] = useState<PublicCrumb[]>([]);
   const [verifyError, setVerifyError] = useState("");
   const [verifying, setVerifying] = useState(false);
+  const [verifyingLink, setVerifyingLink] = useState(Boolean(linkCode));
   const verificationInFlight = useRef(false);
   const automaticVerificationUsed = useRef(false);
   const parent = crumbs.at(-1);
@@ -33,7 +40,7 @@ export function PublicSharePage() {
   const authorized = Boolean(meta.data && (!meta.data.grant_required || grant));
   const nodes = useQuery({ queryKey: ["public-nodes", shareToken, parent?.id, grant], enabled: authorized, queryFn: () => api.request<{ items: Node[] }>(`/api/v1/public/shares/${shareToken}/nodes${parent?.id ? `?parent_id=${parent.id}` : ""}`, { headers: grant ? { Authorization: `Bearer ${grant}` } : undefined }) });
 
-  async function verify({ code }: { code: string }) {
+  const verify = useCallback(async ({ code }: { code: string }) => {
     if (verificationInFlight.current) return;
     verificationInFlight.current = true;
     setVerifying(true);
@@ -50,7 +57,13 @@ export function PublicSharePage() {
       verificationInFlight.current = false;
       setVerifying(false);
     }
-  }
+  }, [shareToken]);
+
+  useEffect(() => {
+    if (!meta.data?.grant_required || !linkCode || automaticVerificationUsed.current) return;
+    automaticVerificationUsed.current = true;
+    void verify({ code: linkCode }).finally(() => setVerifyingLink(false));
+  }, [meta.data?.grant_required, linkCode, verify]);
 
   async function download(node: Node) {
     try {
@@ -73,6 +86,7 @@ export function PublicSharePage() {
 
   if (meta.isLoading) return <main className="public-page public-centered"><Spin size="large" description="正在验证分享链接" /></main>;
   if (meta.error || !meta.data) return <main className="public-page public-centered"><Card className="public-result-card"><Result status="warning" title="分享不可用" subTitle="链接可能已过期、被撤销或不存在。" /></Card></main>;
+  if (meta.data.grant_required && !grant && verifyingLink) return <main className="public-page public-centered"><Spin size="large" description="正在验证分享密码" /></main>;
   if (meta.data.grant_required && !grant) {
     const codeLength = meta.data.share.code_length === 4 ? 4 : 8;
     const numericCode = codeLength === 4;
@@ -81,7 +95,7 @@ export function PublicSharePage() {
         <Card className="share-enterprise-card" variant="borderless">
           <PublicShareBrand />
           <Space direction="vertical" size={6} className="login-heading share-code-heading"><Typography.Title level={2}>{meta.data.target.name}</Typography.Title><Typography.Text type="secondary"><SafetyCertificateOutlined /> 此分享需要提取码</Typography.Text></Space>
-          <Form className="share-code-form" layout="vertical" size="large" onFinish={(values) => void verify(values)}>
+          <Form className="share-code-form" layout="vertical" size="large" initialValues={{ code: linkCode }} onFinish={(values) => void verify(values)}>
             <Form.Item
               name="code"
               label={numericCode ? "4 位数字提取码" : "8 位提取码（旧版分享）"}
