@@ -48,6 +48,7 @@ export type Share = {
   id: string;
   project_id: string;
   target_node_id: string;
+  target_node_ids?: string[];
   require_code: boolean;
   code_length?: 4 | 8;
   expires_at: string | null;

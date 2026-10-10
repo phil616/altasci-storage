@@ -115,6 +115,7 @@ func TestAuthenticatedLocalFileFlow(t *testing.T) {
 	createdShareResponse := doJSON(t, client, server.URL+"/api/v1/nodes/"+node.ID+"/shares", http.MethodPost, webOrigin, auth.CSRF, map[string]any{"require_code": true})
 	require.Equal(t, http.StatusCreated, createdShareResponse.StatusCode)
 	var createdShare struct {
+		ID         string `json:"id"`
 		URL        string `json:"url"`
 		Code       string `json:"code"`
 		CodeLength int    `json:"code_length"`
@@ -127,6 +128,77 @@ func TestAuthenticatedLocalFileFlow(t *testing.T) {
 	verifiedShare := doJSON(t, client, server.URL+"/api/v1/public/shares/"+shareToken+"/verify", http.MethodPost, webOrigin, "", map[string]any{"code": createdShare.Code})
 	require.Equal(t, http.StatusOK, verifiedShare.StatusCode)
 	verifiedShare.Body.Close()
+	require.Regexp(t, `^\d{5}(-\d{5}){5}$`, shareToken)
+	for _, token := range []string{shareToken, strings.ReplaceAll(shareToken, "-", "")} {
+		meta := doJSON(t, client, server.URL+"/api/v1/public/shares/"+token+"/", http.MethodGet, webOrigin, "", nil)
+		require.Equal(t, http.StatusOK, meta.StatusCode)
+		raw, err := io.ReadAll(meta.Body)
+		require.NoError(t, err)
+		meta.Body.Close()
+		require.NotContains(t, string(raw), `"code":`)
+		require.NotContains(t, string(raw), `"url":`)
+		verify := doJSON(t, client, server.URL+"/api/v1/public/shares/"+token+"/verify", http.MethodPost, webOrigin, "", map[string]any{"code": createdShare.Code})
+		require.Equal(t, http.StatusOK, verify.StatusCode)
+		verify.Body.Close()
+	}
+	owned := doJSON(t, client, server.URL+"/api/v1/shares/"+createdShare.ID, http.MethodGet, webOrigin, "", nil)
+	require.Equal(t, http.StatusOK, owned.StatusCode)
+	var details map[string]any
+	require.NoError(t, json.NewDecoder(owned.Body).Decode(&details))
+	owned.Body.Close()
+	require.Equal(t, createdShare.URL, details["url"])
+	require.Equal(t, createdShare.Code, details["code"])
+	listing := doJSON(t, client, server.URL+"/api/v1/shares", http.MethodGet, webOrigin, "", nil)
+	var sharesList struct{ Items []map[string]any }
+	require.NoError(t, json.NewDecoder(listing.Body).Decode(&sharesList))
+	listing.Body.Close()
+	require.Equal(t, createdShare.Code, sharesList.Items[0]["code"])
+	loaded, err := store.ShareByID(ctx, createdShare.ID)
+	require.NoError(t, err)
+	require.True(t, loaded.CredentialsCiphertext.Valid)
+	require.NotContains(t, loaded.CredentialsCiphertext.String, shareToken)
+
+	// A combined share exposes selected roots and descendants, never siblings.
+	target, err := store.NodeByID(ctx, node.ID)
+	require.NoError(t, err)
+	folder := repository.Node{ID: security.NewID(), ProjectID: target.ProjectID, Name: "shared folder", NodeType: "directory", CreatedBy: admin.ID, CreatedAt: now, UpdatedAt: now}
+	require.NoError(t, store.CreateDirectory(ctx, folder))
+	outside := folder
+	outside.ID = security.NewID()
+	outside.Name = "outside"
+	require.NoError(t, store.CreateDirectory(ctx, outside))
+	batchResponse := doJSON(t, client, server.URL+"/api/v1/shares", http.MethodPost, webOrigin, auth.CSRF, map[string]any{"node_ids": []string{node.ID, folder.ID}, "require_code": false})
+	require.Equal(t, http.StatusCreated, batchResponse.StatusCode)
+	var batch struct {
+		ID            string
+		URL           string
+		TargetNodeIDs []string `json:"target_node_ids"`
+	}
+	require.NoError(t, json.NewDecoder(batchResponse.Body).Decode(&batch))
+	batchResponse.Body.Close()
+	require.Equal(t, []string{node.ID, folder.ID}, batch.TargetNodeIDs)
+	base := server.URL + "/api/v1/public/shares/" + strings.TrimPrefix(batch.URL, webOrigin+"/s/")
+	roots := doJSON(t, client, base+"/nodes", http.MethodGet, webOrigin, "", nil)
+	require.Equal(t, http.StatusOK, roots.StatusCode)
+	var rootItems struct{ Items []struct{ ID string } }
+	require.NoError(t, json.NewDecoder(roots.Body).Decode(&rootItems))
+	roots.Body.Close()
+	require.Len(t, rootItems.Items, 2)
+	for _, suffix := range []string{"/nodes?parent_id=" + outside.ID, "/nodes/" + outside.ID + "/download", "/nodes/" + outside.ID + "/content"} {
+		method := http.MethodGet
+		if strings.HasSuffix(suffix, "/download") {
+			method = http.MethodPost
+		}
+		denied := doJSON(t, client, base+suffix, method, webOrigin, "", map[string]any{})
+		require.Equal(t, http.StatusForbidden, denied.StatusCode)
+		denied.Body.Close()
+	}
+	childList := doJSON(t, client, base+"/nodes?parent_id="+folder.ID, http.MethodGet, webOrigin, "", nil)
+	require.Equal(t, http.StatusOK, childList.StatusCode)
+	childList.Body.Close()
+	download := doJSON(t, client, base+"/nodes/"+node.ID+"/download", http.MethodPost, webOrigin, "", map[string]any{})
+	require.Equal(t, http.StatusOK, download.StatusCode)
+	download.Body.Close()
 
 	inUseStorageDelete := doJSON(t, client, server.URL+"/api/v1/admin/storage-backends/"+backend.ID, http.MethodDelete, webOrigin, auth.CSRF, map[string]any{})
 	require.Equal(t, http.StatusConflict, inUseStorageDelete.StatusCode)

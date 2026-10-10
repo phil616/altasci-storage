@@ -112,6 +112,7 @@ func (s *Server) nodeRoutes(r chi.Router) {
 }
 func (s *Server) shareRoutes(r chi.Router) {
 	r.Get("/shares", s.listShares)
+	r.Post("/shares", s.createShare)
 	r.Post("/nodes/{nodeID}/shares", s.createShare)
 	r.Get("/shares/{shareID}", s.getShare)
 	r.Patch("/shares/{shareID}", s.updateShare)

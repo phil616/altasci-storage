@@ -31,7 +31,7 @@ import {
   type MenuProps,
   type TableColumnsType,
 } from "antd";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { Node, Project, Share, User } from "../api/types";
@@ -59,6 +59,10 @@ export function ProjectPage() {
   const [memberOpen, setMemberOpen] = useState(false);
   const [crumbs, setCrumbs] = useState<Crumb[]>([{ name: "根目录" }]);
   const parentId = crumbs.at(-1)?.id;
+  const [selectedIDs, setSelectedIDs] = useState<React.Key[]>([]);
+  const [sharing, setSharing] = useState(false);
+  useEffect(() => setSelectedIDs([]), [projectId, parentId]);
+
   const project = useQuery({ queryKey: ["project", projectId], queryFn: () => api.request<Project>(`/api/v1/projects/${projectId}`) });
   const nodes = useQuery({ queryKey: ["nodes", projectId, parentId], queryFn: () => api.request<{ items: Node[] }>(`/api/v1/projects/${projectId}/nodes${parentId ? `?parent_id=${parentId}` : ""}`) });
   const isAdmin = project.data?.permission === "admin";
@@ -107,9 +111,13 @@ export function ProjectPage() {
     }
   }
 
-  async function share(node: Node) {
+  async function share(node?: Node) {
+    if (sharing) return;
+    setSharing(true);
     try {
-      const result = await api.request<Share>(`/api/v1/nodes/${node.id}/shares`, { method: "POST", body: JSON.stringify({ require_code: true }) });
+      const result = await api.request<Share>(node ? `/api/v1/nodes/${node.id}/shares` : "/api/v1/shares", { method: "POST", body: JSON.stringify(node ? { require_code: true } : { require_code: true, node_ids: selectedIDs }) });
+      void queryClient.invalidateQueries({ queryKey: ["shares"] });
+      setSelectedIDs([]);
       modal.success({
         title: "分享已创建",
         width: 560,
@@ -117,7 +125,7 @@ export function ProjectPage() {
       });
     } catch (error) {
       void message.error(error instanceof Error ? error.message : "分享创建失败");
-    }
+    } finally { setSharing(false); }
   }
 
   function openNodeDialog(type: NodeDialog["type"], node: Node) {
@@ -170,13 +178,14 @@ export function ProjectPage() {
           <Breadcrumb items={crumbs.map((crumb, index) => ({ title: <Button type="link" size="small" onClick={() => setCrumbs(crumbs.slice(0, index + 1))}>{crumb.name}</Button> }))} />
         </div>
         <Space wrap>
+          {canWrite && <Button icon={<ShareAltOutlined />} disabled={!selectedIDs.length || selectedIDs.length > 100} loading={sharing} onClick={() => void share()}>批量分享（{selectedIDs.length}）</Button>}
           {canWrite && <><Button icon={<FolderAddOutlined />} onClick={() => setFolderOpen(true)}>新建文件夹</Button><Button type="primary" icon={<UploadOutlined />} onClick={() => input.current?.click()}>上传文件</Button><input ref={input} hidden multiple type="file" onChange={(event) => { if (event.target.files) uploads.enqueue(event.target.files, projectId, parentId); event.target.value = ""; }} /></>}
           {isAdmin && <Popconfirm title="删除整个项目？" description="全部节点和对象将进入异步删除队列，此操作不可撤销。" okText="删除项目" cancelText="取消" okButtonProps={{ danger: true }} onConfirm={() => deleteProject.mutate()}><Button danger icon={<DeleteOutlined />} loading={deleteProject.isPending}>删除项目</Button></Popconfirm>}
         </Space>
       </div>
       {nodes.error && <Alert type="error" showIcon title="目录加载失败" description={nodes.error.message} className="settings-notice" />}
       <Card styles={{ body: { padding: 0 } }}>
-        <Table<Node> rowKey="id" loading={project.isLoading || nodes.isLoading} columns={columns} dataSource={nodes.data?.items ?? []} pagination={false} locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="此目录还没有文件" /> }} />
+        <Table<Node> rowSelection={canWrite ? { selectedRowKeys: selectedIDs, onChange: setSelectedIDs } : undefined} rowKey="id" loading={project.isLoading || nodes.isLoading} columns={columns} dataSource={nodes.data?.items ?? []} pagination={false} locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="此目录还没有文件" /> }} />
       </Card>
 
       {isAdmin && <Card title={<Space><TeamOutlined />项目成员</Space>} extra={<Button icon={<TeamOutlined />} onClick={() => setMemberOpen(true)}>添加成员</Button>} className="members-enterprise-card"><Alert type="info" showIcon title="Writer 仍需启用全局写权限才能修改文件。" className="modal-notice" /><Table<Member> rowKey="user_id" loading={members.isLoading} columns={memberColumns} dataSource={members.data?.items ?? []} pagination={false} /></Card>}

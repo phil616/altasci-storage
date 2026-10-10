@@ -144,12 +144,15 @@ Local 支持单 Range：`bytes=0-1023`、`bytes=1024-`、`bytes=-1024`，不支�
 | 方法与路径（省略 `/api/v1`） | 请求或行为 | 成功响应 |
 | --- | --- | --- |
 | POST `/nodes/{nodeID}/shares` | `{require_code?,expires_at?}`；需节点所在项目写权限 | 201，Share + url + 可选 code |
+| POST `/shares` | `{node_ids,require_code?,expires_at?}`；1–100 个同项目节点，逐个校验写权限，共用一个链接和密码 | 201，Share + url + 可选 code |
 | GET `/shares` | 普通用户看自己创建的，管理员看全部；含过期/撤销记录 | 200，ShareList |
 | GET `/shares/{shareID}` | 创建者或管理员 | 200，Share |
 | PATCH `/shares/{shareID}` | 创建者或管理员；可改 expires_at、disabled | 200，Share |
 | DELETE `/shares/{shareID}` | 创建者或管理员；撤销 | 204；重复 DELETE 返回 404 |
 
-这些接口仅支持 Session。`require_code` 默认 true；新 code 为 4 位数字字符串，可有前导零。expires_at 省略使用默认时长，空字符串表示永不过期；非空须为未来 RFC3339。PATCH 未传或 null 表示保留原字段；`disabled:true` 撤销后不能用 false 恢复。URL 和 code **只在创建响应中返回**，详情和列表没有这两个字段，也没有修改提取码的接口。
+这些接口仅支持 Session。`require_code` 默认 true；新 code 为 4 位数字字符串，可有前导零。expires_at 省略使用默认时长，空字符串表示永不过期；非空须为未来 RFC3339。PATCH 未传或 null 表示保留原字段；`disabled:true` 撤销后不能用 false 恢复。新分享的 URL 和 code 会加密保存，创建者和管理员可在详情和列表中再次查看；公开接口不会返回这些凭据。历史分享只有哈希，无法恢复链接或密码，可重新创建分享。没有修改提取码的接口。
+
+新链接使用 30 位数字字符串，每 5 位用 `-` 分隔，例如 `/s/01234-56789-01234-56789-01234-56789`。访问时带或不带分隔符等价，保留前导零；已有 20 位数字链接及旧版链接继续可用。批量分享的 `target_node_ids` 记录所选节点；公开节点接口不传 parent_id 时返回全部所选根节点，传入目录 ID 时仅允许浏览所选范围的后代。
 
 “携带密码”是前端生成链接的选项，不是创建 API 的字段。后端返回普通链接，例如：
 

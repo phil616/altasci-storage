@@ -3,24 +3,36 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/altasci/network-storage/backend/internal/security"
 )
 
-const shareColumns = `id,project_id,target_node_id,created_by,public_token_hash,code_hash,require_code,code_length,expires_at,disabled_at,created_at`
+const shareColumns = `id,project_id,target_node_id,created_by,public_token_hash,code_hash,require_code,code_length,expires_at,disabled_at,created_at,credentials_ciphertext,target_node_ids_json`
 
 func scanShare(scanner interface{ Scan(...any) error }) (Share, error) {
 	var sh Share
-	err := scanner.Scan(&sh.ID, &sh.ProjectID, &sh.TargetNodeID, &sh.CreatedBy, &sh.PublicTokenHash, &sh.CodeHash, &sh.RequireCode, &sh.CodeLength, &sh.ExpiresAt, &sh.DisabledAt, &sh.CreatedAt)
+	var targets string
+	err := scanner.Scan(&sh.ID, &sh.ProjectID, &sh.TargetNodeID, &sh.CreatedBy, &sh.PublicTokenHash, &sh.CodeHash, &sh.RequireCode, &sh.CodeLength, &sh.ExpiresAt, &sh.DisabledAt, &sh.CreatedAt, &sh.CredentialsCiphertext, &targets)
+	if err == nil {
+		err = json.Unmarshal([]byte(targets), &sh.TargetNodeIDs)
+	}
+	if len(sh.TargetNodeIDs) == 0 {
+		sh.TargetNodeIDs = []string{sh.TargetNodeID}
+	}
 	return sh, mapError(err)
 }
 func (s *Store) CreateShare(ctx context.Context, sh Share) error {
 	if sh.CodeLength == 0 {
 		sh.CodeLength = 4
 	}
-	_, err := s.DB.ExecContext(ctx, `INSERT INTO shares(`+shareColumns+`) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, sh.ID, sh.ProjectID, sh.TargetNodeID, sh.CreatedBy, sh.PublicTokenHash, nullableString(sh.CodeHash.String), sh.RequireCode, sh.CodeLength, nullableInt64(sh.ExpiresAt), nil, sh.CreatedAt)
+	targets, err := json.Marshal(sh.TargetNodeIDs)
+	if err != nil {
+		return err
+	}
+	_, err = s.DB.ExecContext(ctx, `INSERT INTO shares(`+shareColumns+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, sh.ID, sh.ProjectID, sh.TargetNodeID, sh.CreatedBy, sh.PublicTokenHash, nullableString(sh.CodeHash.String), sh.RequireCode, sh.CodeLength, nullableInt64(sh.ExpiresAt), nil, sh.CreatedAt, nullableString(sh.CredentialsCiphertext.String), string(targets))
 	return mapError(err)
 }
 func nullableInt64(v sql.NullInt64) any {
@@ -33,7 +45,7 @@ func (s *Store) ShareByID(ctx context.Context, id string) (Share, error) {
 	return scanShare(s.DB.QueryRowContext(ctx, `SELECT `+shareColumns+` FROM shares WHERE id=?`, id))
 }
 func (s *Store) ShareByToken(ctx context.Context, token string) (Share, error) {
-	return scanShare(s.DB.QueryRowContext(ctx, `SELECT `+shareColumns+` FROM shares WHERE public_token_hash=?`, security.TokenHash(token)))
+	return scanShare(s.DB.QueryRowContext(ctx, `SELECT `+shareColumns+` FROM shares WHERE public_token_hash=?`, security.TokenHash(security.NormalizeShareToken(token))))
 }
 func (s *Store) ListShares(ctx context.Context, u User) ([]Share, error) {
 	query := `SELECT ` + shareColumns + ` FROM shares ORDER BY created_at DESC`
@@ -170,4 +182,14 @@ func ActiveShare(sh Share, now int64) error {
 		return fmt.Errorf("share expired")
 	}
 	return nil
+}
+
+func (s *Store) IsShareDescendant(ctx context.Context, sh Share, requestedID string) (bool, error) {
+	for _, root := range sh.TargetNodeIDs {
+		ok, err := s.IsDescendant(ctx, root, requestedID)
+		if err != nil || ok {
+			return ok, err
+		}
+	}
+	return false, nil
 }

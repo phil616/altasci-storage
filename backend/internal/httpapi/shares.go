@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime"
@@ -18,7 +19,24 @@ import (
 )
 
 func presentShare(sh repository.Share) map[string]any {
-	return map[string]any{"id": sh.ID, "project_id": sh.ProjectID, "target_node_id": sh.TargetNodeID, "created_by": sh.CreatedBy, "require_code": sh.RequireCode, "code_length": sh.CodeLength, "expires_at": nullRFC(sh.ExpiresAt), "disabled_at": nullRFC(sh.DisabledAt), "created_at": rfc(sh.CreatedAt)}
+	return map[string]any{"id": sh.ID, "project_id": sh.ProjectID, "target_node_id": sh.TargetNodeID, "target_node_ids": sh.TargetNodeIDs, "created_by": sh.CreatedBy, "require_code": sh.RequireCode, "code_length": sh.CodeLength, "expires_at": nullRFC(sh.ExpiresAt), "disabled_at": nullRFC(sh.DisabledAt), "created_at": rfc(sh.CreatedAt)}
+}
+func (s *Server) presentOwnedShare(sh repository.Share) map[string]any {
+	out := presentShare(sh)
+	if sh.CredentialsCiphertext.Valid {
+		plain, err := s.box.Decrypt(sh.CredentialsCiphertext.String, "share:"+sh.ID)
+		var credentials struct {
+			Token string
+			Code  string
+		}
+		if err == nil && json.Unmarshal(plain, &credentials) == nil {
+			out["url"] = strings.TrimRight(s.webURL, "/") + "/s/" + security.FormatShareToken(credentials.Token)
+			if sh.RequireCode {
+				out["code"] = credentials.Code
+			}
+		}
+	}
+	return out
 }
 func (s *Server) listShares(w http.ResponseWriter, r *http.Request) {
 	u, _ := userFrom(r)
@@ -29,27 +47,50 @@ func (s *Server) listShares(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]any, len(items))
 	for i, sh := range items {
-		out[i] = presentShare(sh)
+		out[i] = s.presentOwnedShare(sh)
 	}
 	writeJSON(w, 200, map[string]any{"items": out})
 }
 func (s *Server) createShare(w http.ResponseWriter, r *http.Request) {
 	u, _ := userFrom(r)
-	node, err := s.store.NodeByID(r.Context(), chi.URLParam(r, "nodeID"))
-	if err != nil {
-		writeRepoError(w, r, err)
-		return
-	}
-	if err := s.authorization.CanShareNode(r.Context(), u, node); err != nil {
-		writeRepoError(w, r, err)
-		return
-	}
 	var in struct {
-		RequireCode *bool   `json:"require_code"`
-		ExpiresAt   *string `json:"expires_at"`
+		NodeIDs     []string `json:"node_ids"`
+		RequireCode *bool    `json:"require_code"`
+		ExpiresAt   *string  `json:"expires_at"`
 	}
 	if !decodeJSON(w, r, &in) {
 		return
+	}
+	if id := chi.URLParam(r, "nodeID"); id != "" {
+		in.NodeIDs = []string{id}
+	}
+	if len(in.NodeIDs) == 0 || len(in.NodeIDs) > 100 {
+		writeError(w, r, 422, "SHARE_TARGETS_INVALID", "Select between 1 and 100 nodes.")
+		return
+	}
+	var node repository.Node
+	ids := make([]string, 0, len(in.NodeIDs))
+	seen := map[string]bool{}
+	for _, id := range in.NodeIDs {
+		if seen[id] {
+			continue
+		}
+		current, err := s.store.NodeByID(r.Context(), id)
+		if err != nil {
+			writeRepoError(w, r, err)
+			return
+		}
+		if err := s.authorization.CanShareNode(r.Context(), u, current); err != nil {
+			writeRepoError(w, r, err)
+			return
+		}
+		if node.ID != "" && current.ProjectID != node.ProjectID {
+			writeError(w, r, 422, "SHARE_TARGETS_INVALID", "All nodes must belong to the same project.")
+			return
+		}
+		node = current
+		seen[id] = true
+		ids = append(ids, id)
 	}
 	requireCode := true
 	if in.RequireCode != nil {
@@ -69,7 +110,7 @@ func (s *Server) createShare(w http.ResponseWriter, r *http.Request) {
 			expires = sql.NullInt64{Int64: parsed.UTC().UnixMilli(), Valid: true}
 		}
 	}
-	token, err := security.RandomToken(24)
+	token, err := security.GenerateShareToken()
 	if err != nil {
 		writeRepoError(w, r, err)
 		return
@@ -87,14 +128,25 @@ func (s *Server) createShare(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	now := repository.NowMS()
-	sh := repository.Share{ID: security.NewID(), ProjectID: node.ProjectID, TargetNodeID: node.ID, CreatedBy: u.ID, PublicTokenHash: security.TokenHash(token), CodeHash: codeHash, RequireCode: requireCode, CodeLength: sharing.CodeLength, ExpiresAt: expires, CreatedAt: now}
+	sh := repository.Share{ID: security.NewID(), ProjectID: node.ProjectID, TargetNodeID: ids[0], TargetNodeIDs: ids, CreatedBy: u.ID, PublicTokenHash: security.TokenHash(token), CodeHash: codeHash, RequireCode: requireCode, CodeLength: sharing.CodeLength, ExpiresAt: expires, CreatedAt: now}
+	credentials, err := json.Marshal(map[string]string{"Token": token, "Code": code})
+	if err != nil {
+		writeRepoError(w, r, err)
+		return
+	}
+	encrypted, err := s.box.Encrypt(credentials, "share:"+sh.ID)
+	if err != nil {
+		writeRepoError(w, r, err)
+		return
+	}
+	sh.CredentialsCiphertext = sql.NullString{String: encrypted, Valid: true}
 	if err := s.store.CreateShare(r.Context(), sh); err != nil {
 		writeRepoError(w, r, err)
 		return
 	}
-	_ = s.audit(r, "share.created", node.ProjectID, sh.ID, map[string]any{"target_node_id": node.ID, "require_code": requireCode})
-	response := presentShare(sh)
-	response["url"] = strings.TrimRight(s.webURL, "/") + "/s/" + token
+	_ = s.audit(r, "share.created", node.ProjectID, sh.ID, map[string]any{"target_node_ids": ids, "require_code": requireCode})
+	response := s.presentOwnedShare(sh)
+	response["url"] = strings.TrimRight(s.webURL, "/") + "/s/" + security.FormatShareToken(token)
 	if requireCode {
 		response["code"] = code
 	}
@@ -111,7 +163,7 @@ func (s *Server) getShare(w http.ResponseWriter, r *http.Request) {
 		writeRepoError(w, r, repository.ErrForbidden)
 		return
 	}
-	writeJSON(w, 200, presentShare(sh))
+	writeJSON(w, 200, s.presentOwnedShare(sh))
 }
 func (s *Server) updateShare(w http.ResponseWriter, r *http.Request) {
 	u, _ := userFrom(r)
@@ -154,7 +206,7 @@ func (s *Server) updateShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sh, _ = s.store.ShareByID(r.Context(), id)
-	writeJSON(w, 200, presentShare(sh))
+	writeJSON(w, 200, s.presentOwnedShare(sh))
 }
 func (s *Server) deleteShare(w http.ResponseWriter, r *http.Request) {
 	u, _ := userFrom(r)
@@ -177,7 +229,7 @@ func (s *Server) deleteShare(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) loadPublicShare(w http.ResponseWriter, r *http.Request) (repository.Share, bool) {
-	token := chi.URLParam(r, "token")
+	token := security.NormalizeShareToken(chi.URLParam(r, "token"))
 	sh, err := s.store.ShareByToken(r.Context(), token)
 	if err != nil {
 		writeError(w, r, 404, "SHARE_NOT_FOUND", "The share is unavailable.")
@@ -199,6 +251,10 @@ func (s *Server) publicShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	node, err := s.store.NodeByID(r.Context(), sh.TargetNodeID)
+	if len(sh.TargetNodeIDs) > 1 {
+		node = repository.Node{Name: fmt.Sprintf("%d 个分享项目", len(sh.TargetNodeIDs)), NodeType: "directory"}
+		err = nil
+	}
 	if err != nil {
 		writeError(w, r, 404, "SHARE_NOT_FOUND", "The share is unavailable.")
 		return
@@ -206,7 +262,7 @@ func (s *Server) publicShare(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"share": presentShare(sh), "target": presentNode(node), "grant_required": sh.RequireCode})
 }
 func (s *Server) verifyShare(w http.ResponseWriter, r *http.Request) {
-	token := chi.URLParam(r, "token")
+	token := security.NormalizeShareToken(chi.URLParam(r, "token"))
 	tokenHash := security.TokenHash(token)
 	ipKey := clientIP(r) + "|" + tokenHash
 	limit := s.shareRateLimit(r.Context())
@@ -273,25 +329,37 @@ func (s *Server) publicNodes(w http.ResponseWriter, r *http.Request) {
 	if !ok || !s.authorizePublic(w, r, sh) {
 		return
 	}
-	root, err := s.store.NodeByID(r.Context(), sh.TargetNodeID)
-	if err != nil {
-		writeError(w, r, 404, "SHARE_NOT_FOUND", "The share is unavailable.")
+	parent := r.URL.Query().Get("parent_id")
+	if parent == "" && len(sh.TargetNodeIDs) > 1 {
+		out := make([]any, 0, len(sh.TargetNodeIDs))
+		for _, id := range sh.TargetNodeIDs {
+			n, err := s.store.NodeByID(r.Context(), id)
+			if err == repository.ErrNotFound {
+				continue
+			}
+			if err != nil {
+				writeRepoError(w, r, err)
+				return
+			}
+			out = append(out, presentNode(n))
+		}
+		writeJSON(w, 200, map[string]any{"items": out})
 		return
 	}
-	parent := r.URL.Query().Get("parent_id")
 	if parent == "" {
-		parent = root.ID
+		parent = sh.TargetNodeID
 	}
-	allowed, err := s.store.IsDescendant(r.Context(), root.ID, parent)
+	allowed, err := s.store.IsShareDescendant(r.Context(), sh, parent)
 	if err != nil || !allowed {
 		writeError(w, r, 403, "SHARE_NODE_FORBIDDEN", "The requested node is outside this share.")
 		return
 	}
+	root, err := s.store.NodeByID(r.Context(), parent)
+	if err != nil {
+		writeRepoError(w, r, err)
+		return
+	}
 	if root.NodeType == "file" {
-		if parent != root.ID {
-			writeError(w, r, 403, "SHARE_NODE_FORBIDDEN", "The requested node is outside this share.")
-			return
-		}
 		writeJSON(w, 200, map[string]any{"items": []any{presentNode(root)}})
 		return
 	}
@@ -312,7 +380,7 @@ func (s *Server) publicDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	nodeID := chi.URLParam(r, "nodeID")
-	allowed, err := s.store.IsDescendant(r.Context(), sh.TargetNodeID, nodeID)
+	allowed, err := s.store.IsShareDescendant(r.Context(), sh, nodeID)
 	if err != nil || !allowed {
 		writeError(w, r, 403, "SHARE_NODE_FORBIDDEN", "The requested node is outside this share.")
 		return
@@ -350,7 +418,7 @@ func (s *Server) publicLocalContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	nodeID := chi.URLParam(r, "nodeID")
-	allowed, err := s.store.IsDescendant(r.Context(), sh.TargetNodeID, nodeID)
+	allowed, err := s.store.IsShareDescendant(r.Context(), sh, nodeID)
 	if err != nil || !allowed {
 		writeError(w, r, 403, "SHARE_NODE_FORBIDDEN", "The requested node is outside this share.")
 		return

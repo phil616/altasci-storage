@@ -126,17 +126,19 @@ type Upload struct {
 }
 
 type Share struct {
-	ID              string         `json:"id"`
-	ProjectID       string         `json:"project_id"`
-	TargetNodeID    string         `json:"target_node_id"`
-	CreatedBy       string         `json:"created_by"`
-	PublicTokenHash string         `json:"-"`
-	CodeHash        sql.NullString `json:"-"`
-	RequireCode     bool           `json:"require_code"`
-	CodeLength      int            `json:"code_length"`
-	ExpiresAt       sql.NullInt64  `json:"expires_at"`
-	DisabledAt      sql.NullInt64  `json:"disabled_at"`
-	CreatedAt       int64          `json:"created_at"`
+	CredentialsCiphertext sql.NullString `json:"-"`
+	TargetNodeIDs         []string       `json:"target_node_ids"`
+	ID                    string         `json:"id"`
+	ProjectID             string         `json:"project_id"`
+	TargetNodeID          string         `json:"target_node_id"`
+	CreatedBy             string         `json:"created_by"`
+	PublicTokenHash       string         `json:"-"`
+	CodeHash              sql.NullString `json:"-"`
+	RequireCode           bool           `json:"require_code"`
+	CodeLength            int            `json:"code_length"`
+	ExpiresAt             sql.NullInt64  `json:"expires_at"`
+	DisabledAt            sql.NullInt64  `json:"disabled_at"`
+	CreatedAt             int64          `json:"created_at"`
 }
 
 type OIDCProvider struct {

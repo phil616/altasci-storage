@@ -621,10 +621,38 @@ paths:
         default: { $ref: '#/components/responses/Error' }
 
   /api/v1/shares:
+    post:
+      tags: [Shares]
+      operationId: createBatchShare
+      summary: Share multiple files or directories through one link
+      description: Requires session and write access to every target in the same project.
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [node_ids]
+              properties:
+                node_ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items: { type: string, format: uuid }
+                require_code: { type: boolean, default: true }
+                expires_at: { type: [string, 'null'] }
+      responses:
+        '201':
+          description: One share created for all selected targets.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreateShareResponse' }
+        default: { $ref: '#/components/responses/Error' }
     get:
       tags: [Shares]
       operationId: listShares
-      description: Administrators see all shares; other users see only their own. Includes revoked and expired records, without URL or code.
+      description: Administrators see all shares; other users see only their own. Includes revoked and expired records, with recoverable URL and code for new shares.
       summary: List Shares
       responses:
         '200':
@@ -637,7 +665,7 @@ paths:
     post:
       tags: [Shares]
       operationId: createShare
-      description: Requires project write access and a session. URL and optional code are returned only once. The Web carry-password checkbox appends code to the returned URL on the client; no backend request flag exists.
+      description: Requires project write access and a session. URL and optional code are also available in authenticated list and detail responses. The Web carry-password checkbox appends code to the returned URL on the client; no backend request flag exists.
       summary: Create Share
       security: [{ sessionCookie: [], csrfToken: [] }]
       parameters: [{ $ref: '#/components/parameters/NodeID' }]
@@ -648,7 +676,7 @@ paths:
             schema: { $ref: '#/components/schemas/CreateShareRequest' }
       responses:
         '201':
-          description: Share created. URL and optional extraction code are returned only here.
+          description: Share created with URL and optional extraction code.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/CreateShareResponse' }
@@ -665,7 +693,7 @@ paths:
           description: Share details.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Share' }
+              schema: { $ref: '#/components/schemas/OwnedShare' }
         default: { $ref: '#/components/responses/Error' }
     patch:
       tags: [Shares]
@@ -683,7 +711,7 @@ paths:
           description: Share updated.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Share' }
+              schema: { $ref: '#/components/schemas/OwnedShare' }
         default: { $ref: '#/components/responses/Error' }
     delete:
       tags: [Shares]
@@ -1558,18 +1586,26 @@ components:
         id: { type: string, format: uuid }
         project_id: { type: string, format: uuid }
         target_node_id: { type: string, format: uuid }
+        target_node_ids: { type: array, items: { type: string, format: uuid } }
         created_by: { type: string, format: uuid }
         require_code: { type: boolean }
         code_length: { type: integer, enum: [4, 8] }
         expires_at: { type: [string, 'null'], format: date-time }
         disabled_at: { type: [string, 'null'], format: date-time }
         created_at: { type: string, format: date-time }
+    OwnedShare:
+      allOf:
+        - $ref: '#/components/schemas/Share'
+        - type: object
+          properties:
+            url: { type: string, format: uri, description: Unavailable for legacy shares. }
+            code: { type: string, description: Unavailable for legacy shares or shares without a code. }
     ShareList:
       type: object
       additionalProperties: false
       required: [items]
       properties:
-        items: { type: array, items: { $ref: '#/components/schemas/Share' } }
+        items: { type: array, items: { $ref: '#/components/schemas/OwnedShare' } }
     CreateShareRequest:
       type: object
       additionalProperties: false
@@ -1584,7 +1620,7 @@ components:
         - type: object
           required: [url]
           properties:
-            url: { type: string, format: uri, description: 'Web URL /s/{token}, returned only at creation without code query. To carry the password, clients append code with URLSearchParams.' }
+            url: { type: string, format: uri, description: 'Web URL /s/{token}, returned to the owner or administrator without code query. To carry the password, clients append code with URLSearchParams.' }
             code: { type: string, pattern: '^[0-9]{4}$', example: '0123', description: Only returned when require_code is true; preserve leading zeros. }
     UpdateShareRequest:
       type: object

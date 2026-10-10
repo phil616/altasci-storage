@@ -62,7 +62,7 @@ SQLite 使用 WAL、foreign_keys=ON、synchronous=FULL、busy_timeout=5000ms，�
 - `remember=false` 不设置持久化 Max-Age；true 使用签发时的绝对会话时长（默认 7 天）。空闲/绝对到期和主动撤销始终生效。
 - 修改/重置密码会撤销用户所有会话；不会撤销 API Key。密钥应单独撤销。
 - Storage/OIDC Secret 使用 AES-256-GCM，AAD 绑定记录 ID 与版本。
-- Share token 是 192-bit 随机值，只保存 SHA-256；提取码使用 Argon2id。
+- Share token 是加密安全随机生成的 30 位数字字符串，展示时每 5 位用连字符分隔，查找及限流前统一去除数字 token 的连字符；旧版 token 保持原样。查找保存 SHA-256，提取码验证使用 Argon2id，原始 token 和提取码另用主密钥 AES-GCM 加密保存。
 - Share Grant 是 HS256 JWT，声明为 `typ/share_id/iat/exp`，签名使用启动时加载的 master key；前端仅在页面内存保存。
 
 OIDC 使用 Authorization Code + PKCE S256、nonce 和一次性 state，流程有效期 10 分钟。回调验证 provider、ID token、nonce 和邮箱域策略，再解析用户身份。默认不自动创建用户、不按邮箱自动关联；自动创建和关联遵循 verified email 策略。回调建立同样的 Cookie 会话。
@@ -83,7 +83,7 @@ OIDC 使用 Authorization Code + PKCE S256、nonce 和一次性 state，流程�
 
 ## 公开分享与携带密码
 
-分享绑定实时节点和子树，不是文件快照。前端创建时固定 `require_code=true`，后端也支持免提取码和自定义有效期。URL 和明文 code 只在创建响应中返回；列表/详情无法恢复。
+分享绑定一个或多个同项目实时节点和子树，不是文件快照。前端创建时固定 `require_code=true`，后端也支持免提取码和自定义有效期。新分享的 URL 和 code 可在创建者或管理员的列表/详情中再次获取，公开接口不返回凭据。历史分享只有哈希，无法恢复原始凭据；旧链接继续有效。
 
 分享弹窗中的“携带密码”默认不勾选，勾选时通过 URLSearchParams 将 code 附加到 Web URL，例如 `/s/{token}?code=0123`；不会新增后端字段，也不会修改分享记录。访问页先获取元数据，需要提取码且链接 code 非空时自动 POST verify 一次，成功后显示文件列表。失败时回到预填密码的表单供手动重试。无 code 链接保留普通输入流程；4 位输入完整后自动尝试一次。切换 token/code 会重置页面授权状态。
 

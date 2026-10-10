@@ -64,3 +64,26 @@ test("invalid link password is tried once and allows manual correction", async (
   await expect(page.locator(".public-enterprise-browser")).toBeVisible();
   expect(attempts).toEqual(["1111", "0123"]);
 });
+
+test("multiple selections create one share and saved credentials remain visible", async ({ page }) => {
+  const url = "http://127.0.0.1:4173/s/01234-56789-01234-56789-01234-56789";
+  const share = { id: "share", target_node_id: "file", target_node_ids: ["file", "second"], url, code: "0123", require_code: true, created_at: "2026-10-02T00:00:00Z" };
+  await page.route("**/projects/project/nodes", route => route.fulfill({ json: { items: [node, { ...node, id: "second", name: "第二份.pdf" }] } }));
+  await page.route("**/api/v1/shares", route => {
+    if (route.request().method() === "POST") {
+      expect(route.request().postDataJSON()).toEqual({ require_code: true, node_ids: ["file", "second"] });
+      return route.fulfill({ status: 201, json: share });
+    }
+    return route.fulfill({ json: { items: [share] } });
+  });
+  await page.goto("/projects/project");
+  await page.locator(".ant-table-thead input[type=checkbox]").first().check();
+  await page.getByRole("button", { name: "批量分享（2）" }).click();
+  await expect(page.getByRole("dialog")).toContainText(url);
+  await page.goto("/shares");
+  await expect(page.getByText(url, { exact: true })).toBeVisible();
+  await expect(page.getByText("0123", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "查看分享信息" }).click();
+  await page.getByRole("dialog").getByLabel("携带密码").check();
+  await expect(page.getByRole("dialog")).toContainText(url + "?code=0123");
+});
