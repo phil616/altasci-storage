@@ -14,6 +14,8 @@ AltasCI 云盘是一个面向企业内部使用的文件管理系统。SQLite �
 
 ## 快速开始
 
+仅部署后端时，可使用 Docker，无需在宿主机安装 Go 或 C 编译器，见 [Docker 后端部署](docs/docker.md)。
+
 需要 Go 1.27+、支持 CGO 的 C 编译器、Node.js 20.19+（20.x）或 22.12+ 和 npm。
 
 ```bash
@@ -52,6 +54,7 @@ VITE_API_BASE_URL=https://your-api.example.com npm run build
 
 ## 文档
 
+- [Docker 后端部署](docs/docker.md)
 - [编译、初始化与排错](docs/build.md)
 - [部署、可信 URL 与对象存储 CORS](docs/deployment.md)
 - [技术架构、数据模型与安全边界](docs/architecture.md)

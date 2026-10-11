@@ -1,0 +1,14 @@
+# Only source and the container bootstrap config belong in the build context.
+**
+!go.mod
+!go.sum
+!cmd/
+!cmd/**
+!internal/
+!internal/**
+!migrations/
+!migrations/**
+!docker/
+!docker/config.toml
+!Dockerfile
+!.dockerignore

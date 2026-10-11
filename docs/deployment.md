@@ -1,5 +1,7 @@
 # 部署
 
+后端也支持容器部署，镜像构建、初始化、持久卷和升级步骤见 [Docker 后端部署](docker.md)。
+
 ## 独立部署
 
 Backend 与 Frontend 使用不同构建产物，部署示例采用独立子域名。后端不负责托管前端静态资源；也可由反向代理按路径分流到同一 Origin。Frontend `dist/` 不会嵌入 Go binary，Backend 也没有 SPA 静态资源路由。
