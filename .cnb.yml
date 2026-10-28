@@ -20,7 +20,7 @@ main:
   push:
     - name: 构建并部署 AltasCI Storage
       docker:
-        image: node:20
+        image: node:24
 
       lock:
         key: altasci-storage-edgeone-pages
