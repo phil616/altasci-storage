@@ -11,6 +11,7 @@ AltasCI 云盘是一个面向企业内部使用的文件管理系统。SQLite �
 - 本地密码、OIDC、CSRF、限流与审计；
 - 用户 API 密钥、操作权限、项目范围、到期和撤销管理；
 - React 19 + Ant Design 前端和 Go HTTP API。
+- `ascli` 分享下载客户端，支持密码、目录递归、S3/OSS 直连和 CI/CD。
 
 ## 快速开始
 
@@ -30,6 +31,7 @@ make run
 构建产物：
 
 - `dist/altasci-server`：后端可执行文件；
+- `dist/ascli`：分享下载客户端；
 - `frontend/dist/`：前端静态文件。
 
 启动后可检查：
@@ -54,6 +56,7 @@ VITE_API_BASE_URL=https://your-api.example.com npm run build
 
 ## 文档
 
+- [ascli 可行性分析、安装与 CI/CD 下载](docs/cli.md)
 - [Docker 后端部署](docs/docker.md)
 - [编译、初始化与排错](docs/build.md)
 - [部署、可信 URL 与对象存储 CORS](docs/deployment.md)

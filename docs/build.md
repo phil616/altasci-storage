@@ -58,6 +58,7 @@ make build-backend
 
 ```text
 dist/altasci-server   Backend binary for the build target
+dist/ascli            Share download CLI (no CGO required)
 frontend/dist/        Frontend static files
 ```
 
@@ -73,6 +74,8 @@ go build -x -o ../dist/altasci-server ./cmd/altasci-server
 ```bash
 make build-backend GO_BUILD_FLAGS=-x
 ```
+
+只构建分享下载客户端：`make build-cli`。客户端无需 C 编译器、数据库或前端依赖，使用方法见 [ascli 文档](cli.md)。
 
 ## 初始化
 

@@ -6,14 +6,16 @@ VERSION ?= 0.1.0
 GO_BUILD_FLAGS ?= -v
 DIST_DIR := $(CURDIR)/dist
 SERVER_BIN := $(DIST_DIR)/altasci-server
+CLI_BIN := $(DIST_DIR)/ascli
 
-.PHONY: help doctor build build-backend build-frontend init run test
+.PHONY: help doctor build build-backend build-cli build-frontend init run test
 
 help:
 	@echo "Available targets:"
 	@echo "  make doctor          Show required tool versions"
 	@echo "  make build           Build backend and frontend"
 	@echo "  make build-backend   Create dist/altasci-server"
+	@echo "  make build-cli       Create dist/ascli (no CGO required)"
 	@echo "  make build-frontend  Create frontend/dist/"
 	@echo "  make init INIT_ARGS='--admin-email ... --public-web-url ... --public-api-url ...'"
 	@echo "  make run             Start the initialized backend"
@@ -30,13 +32,19 @@ doctor:
 	@echo "Node: $$(node --version)"
 	@echo "npm:  $$($(NPM) --version)"
 
-build: build-backend build-frontend
+build: build-backend build-cli build-frontend
 
 build-backend:
 	@echo "[build] compiling Go backend (the first build may download the Go toolchain and modules)"
 	@mkdir -p "$(DIST_DIR)"
 	cd backend && CGO_ENABLED=1 $(GO) build $(GO_BUILD_FLAGS) -buildvcs=false -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o "$(SERVER_BIN)" ./cmd/altasci-server
 	@echo "[build] backend binary: $(SERVER_BIN)"
+
+build-cli:
+	@echo "[build] compiling ascli"
+	@mkdir -p "$(DIST_DIR)"
+	cd backend && CGO_ENABLED=0 $(GO) build $(GO_BUILD_FLAGS) -buildvcs=false -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o "$(CLI_BIN)" ./cmd/ascli
+	@echo "[build] CLI binary: $(CLI_BIN)"
 
 build-frontend:
 	@echo "[build] installing locked frontend dependencies"

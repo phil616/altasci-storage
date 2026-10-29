@@ -60,6 +60,8 @@ Web server 必须将非静态路径回退到 `index.html`，并设置 HSTS、CSP
 
 发布新版本时应完整、原子地替换静态目录，不能只覆盖部分文件。`index.html` 必须禁用缓存；带内容 hash 的 `/assets/` 可以长期缓存，但资源不存在时必须返回 `404`，不得回退到 `index.html`。这可避免浏览器把旧入口文件、新 chunks 或 HTML 响应混合使用。发布后如果浏览器仍持有故障版本，应清理站点/CDN缓存并强制刷新一次。
 
+前端构建还会生成 `/.well-known/altasci.json`，供 `ascli` 从 Web 分享链接发现 API 地址。发布时必须包含 `.well-known` 隐藏目录（例如复制 `frontend/dist/.`，不要仅复制 `frontend/dist/*`），静态服务器/CDN 应允许访问该 JSON 并避免长期缓存。API 域名变化后需重新构建并发布。旧版前端或禁止隐藏路径的托管环境，可为 CLI 显式提供 `--api-url`，详见 [CLI 文档](cli.md)。
+
 ## 可信 URL 对照
 
 假设 Web 为 `https://web.example.com`，API 为 `https://web-api.example.com`，各位置应配置为：

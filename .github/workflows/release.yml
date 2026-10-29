@@ -6,17 +6,50 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      # Both binaries expose the exact project release tag, including its v prefix.
+      VERSION: ${{ github.ref_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Test CLI and public share integration
+        working-directory: backend
+        run: |
+          go test ./internal/ascli ./internal/httpapi
+          go vet ./internal/ascli ./cmd/ascli
+
+      - name: Build CLI for Linux, macOS and Windows
+        working-directory: backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          for target_os in linux darwin windows; do
+            for target_arch in amd64 arm64; do
+              suffix=""
+              if [ "$target_os" = windows ]; then suffix=".exe"; fi
+              CGO_ENABLED=0 GOOS="$target_os" GOARCH="$target_arch" \
+                go build -buildvcs=false -trimpath \
+                -ldflags "-s -w -X main.version=${VERSION}" \
+                -o "ascli-${target_os}-${target_arch}${suffix}" ./cmd/ascli
+            done
+          done
 
       - name: Install arm64 cross-compiler
         run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
@@ -26,7 +59,7 @@ jobs:
         run: |
           CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
             go build -buildvcs=false -trimpath \
-            -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" \
+            -ldflags "-s -w -X main.version=${VERSION}" \
             -o altasci-server-linux-amd64 \
             ./cmd/altasci-server
 
@@ -36,14 +69,61 @@ jobs:
           CGO_ENABLED=1 GOOS=linux GOARCH=arm64 \
             CC=aarch64-linux-gnu-gcc \
             go build -buildvcs=false -trimpath \
-            -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" \
+            -ldflags "-s -w -X main.version=${VERSION}" \
             -o altasci-server-linux-arm64 \
             ./cmd/altasci-server
 
-      - name: Create release
-        uses: softprops/action-gh-release@v2
+      - name: Verify versions and release assets
+        working-directory: backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(./ascli-linux-amd64 --version)" = "ascli ${VERSION}"
+          test "$(./altasci-server-linux-amd64 --version)" = "altasci-server ${VERSION}"
+          cli_assets=(
+            ascli-linux-amd64
+            ascli-linux-arm64
+            ascli-darwin-amd64
+            ascli-darwin-arm64
+            ascli-windows-amd64.exe
+            ascli-windows-arm64.exe
+          )
+          assets=(altasci-server-linux-amd64 altasci-server-linux-arm64 "${cli_assets[@]}")
+          for asset in "${assets[@]}"; do test -s "$asset"; done
+          sha256sum "${cli_assets[@]}" > ascli-checksums.txt
+          sha256sum "${assets[@]}" > checksums.txt
+          sha256sum --check checksums.txt
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          generate_release_notes: true
-          files: |
+          name: altasci-storage-${{ env.VERSION }}
+          if-no-files-found: error
+          path: |
             backend/altasci-server-linux-amd64
             backend/altasci-server-linux-arm64
+            backend/ascli-linux-amd64
+            backend/ascli-linux-arm64
+            backend/ascli-darwin-amd64
+            backend/ascli-darwin-arm64
+            backend/ascli-windows-amd64.exe
+            backend/ascli-windows-arm64.exe
+            backend/ascli-checksums.txt
+            backend/checksums.txt
+
+      - name: Publish release with verified assets
+        working-directory: backend
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # A failed upload leaves a draft. Existing releases are never replaced.
+          gh release create "$VERSION" --verify-tag --generate-notes --draft \
+            altasci-server-linux-amd64 altasci-server-linux-arm64 \
+            ascli-linux-amd64 ascli-linux-arm64 \
+            ascli-darwin-amd64 ascli-darwin-arm64 \
+            ascli-windows-amd64.exe ascli-windows-arm64.exe \
+            ascli-checksums.txt checksums.txt
+          gh release edit "$VERSION" --draft=false
