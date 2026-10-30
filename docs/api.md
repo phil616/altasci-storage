@@ -2,6 +2,8 @@
 
 后端业务前缀为 `/api/v1`，健康检查位于 `/health/live` 和 `/health/ready`。所有已注册方法、参数、请求体和响应模型见 [OpenAPI 3.1](openapi.yaml)。本文说明调用顺序、权限和实现中的边界；自动化示例见 [API 密钥接入](api-keys.md)。
 
+智能体通过独立的 `POST /mcp` 使用 MCP Streamable HTTP，只接受 Bearer API Key。协议、工具、读写限制和调用示例见 [MCP 接入](mcp.md)。该端点的 JSON-RPC 错误和工具错误遵循 MCP，不采用下文的 REST 成功响应格式。
+
 ## 通用约定
 
 - 使用 `decodeJSON` 的请求体限制为 1 MiB，只接受一个 JSON 值，拒绝未知结构字段；超限/格式错误均返回 400 `MALFORMED_JSON`。Local 二进制上传不适用此限制。存储 config/secret 和设置值使用独立解析，嵌套未知字段不统一拒绝。

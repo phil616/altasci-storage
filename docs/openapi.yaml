@@ -19,6 +19,8 @@ servers:
 tags:
   - name: Health
     description: Process and database health probes.
+  - name: MCP
+    description: Stateless MCP Streamable HTTP with API key authentication and user file tools.
   - name: Auth
     description: Password sessions and OpenID Connect login.
   - name: API keys
@@ -44,6 +46,56 @@ tags:
 security:
   - sessionCookie: []
 paths:
+  /mcp:
+    post:
+      tags: [MCP]
+      operationId: callMCP
+      summary: MCP discovery and user file tools
+      description: |
+        Official Go SDK Streamable HTTP, stateless JSON responses. Newest supported
+        protocol is 2026-07-28, with legacy negotiation including 2025-11-25.
+        Requires a Bearer API key on every request; session cookies are not accepted.
+        The effective authorization is live user permissions intersected with key
+        scope and project range. Only project queries and user file tools exist;
+        administrator, account, password and key-management tools are unavailable.
+        Accept must include application/json and text/event-stream. Requests are
+        limited to 2 MiB. Origin, if supplied, must be in cors.allowed_origins.
+        Tool schemas and workflow examples are documented in docs/mcp.md and tools/list.
+        This endpoint uses the MCP JSON-RPC contract rather than REST resource models.
+      security: [{ apiKeyBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [jsonrpc, method]
+              properties:
+                jsonrpc: { type: string, const: '2.0' }
+                id: { type: [string, integer] }
+                method: { type: string }
+                params: { type: object, additionalProperties: true }
+      responses:
+        '200':
+          description: MCP JSON-RPC result or error; business tool failures use result.isError=true.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '202':
+          description: MCP notification accepted, without a response body.
+        '400':
+          description: Invalid JSON-RPC request, protocol version, or transport headers.
+        '401':
+          description: Missing, invalid, expired or revoked API key, or disabled user.
+          headers:
+            WWW-Authenticate:
+              schema: { type: string }
+        '403':
+          description: Origin or transport host validation failed.
+        '413':
+          description: MCP request exceeds 2 MiB.
+        '415':
+          description: Content-Type must be application/json.
   /health/live:
     get:
       tags: [Health]

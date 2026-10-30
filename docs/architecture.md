@@ -10,6 +10,7 @@
 | React Router / TanStack Query | 路由懒加载、服务端状态缓存 | `frontend/src/routes/router.tsx`、`frontend/src/main.tsx` |
 | API 客户端 / 上传管理器 | Cookie/CSRF、错误包装、直传与进度 | `frontend/src/api/client.ts`、`frontend/src/upload/UploadManager.tsx` |
 | Go / chi HTTP API | 路由、认证、校验、响应序列化 | `backend/internal/httpapi/` |
+| 官方 Go MCP SDK | `/mcp` 无状态 Streamable HTTP、用户文件工具白名单 | `backend/internal/httpapi/mcp.go` |
 | Authorization | 用户与项目的实时读写权限 | `backend/internal/authorization/` |
 | Repository / SQLite | 元数据、事务、持久化限流 | `backend/internal/repository/` |
 | Storage adapter | Local、S3、OSS 的统一对象操作 | `backend/internal/storage/` |
@@ -47,7 +48,7 @@ flowchart LR
 | `security_bans`、`audit_logs` | 持久化限流、操作审计 |
 | `background_jobs`、`system_settings` | 删除队列、动态业务设置 |
 
-SQLite 使用 WAL、foreign_keys=ON、synchronous=FULL、busy_timeout=5000ms，连接池最多 10 个连接。Goose SQL 嵌入二进制，`init` 和已初始化实例的 `serve` 都会执行前向迁移。目前有 `00001_initial.sql` 和 `00002_api_keys.sql`，以实际迁移文件为准。
+SQLite 使用 WAL、foreign_keys=ON、synchronous=FULL、busy_timeout=5000ms，连接池最多 10 个连接。显式事务使用 `BEGIN IMMEDIATE`，在开始时等待写锁，避免并发上传的“先读后写”事务升级因旧 WAL 快照立即报 `SQLITE_BUSY`；普通查询仍可并发读取。Goose SQL 嵌入二进制，`init` 和已初始化实例的 `serve` 都会执行前向迁移，以实际迁移文件为准。
 
 文件名按 Unicode NFC 规范化，长度限制是 1–255 **UTF-8 字节**，禁止 `.`、`..`、斜杠、反斜杠及控制字符。同级名称区分大小写。重命名和同项目内移动只更新元数据；目录结构不从 Bucket List 重建。
 
@@ -56,6 +57,8 @@ SQLite 使用 WAL、foreign_keys=ON、synchronous=FULL、busy_timeout=5000ms，�
 管理员隐式具有所有项目权限。普通用户创建项目需要 `write_enabled=true`，创建后得到该项目 write 成员权限，但不获得项目管理权。读取需要成员关系；写入、删除文件和创建分享同时需要全局写开关和项目 write 权限。修改/删除项目以及成员管理只允许管理员。
 
 会话请求通过 Cookie 认证；非安全方法还校验精确 Origin、CSRF 和支持的 Content-Type。API Key 仅在显式声明 `apiAccess(scope)` 的项目/文件接口生效，有效权限为用户实时权限、Scope、项目范围三者交集。账户、成员、分享管理、后台和密钥管理只允许会话。显式 Authorization 不会回退到 Cookie。
+
+`/mcp` 在每次 HTTP 请求上重新验证 API Key，SDK 共享服务对象不保存用户凭证，也不使用 MCP Session ID 授权。工具通过进程内适配调用显式选定的 Handler 和 `apiAccess(scope)`，复用用户实时权限、项目范围、上传状态机和已有审计。没有任意路由代理、账户和管理员工具；上传操作额外要求上传属于当前用户，管理员也不能通过 MCP 操作他人的上传。详见 [MCP 接入](mcp.md)。
 
 - 本地密码为 12–128 个 Unicode 字符，Argon2id 参数为 19 MiB、2 次迭代、并行度 1。
 - Session 是 256-bit 随机 token，SQLite 保存 SHA-256；Cookie 名为 `__Host-altasci_session`，Secure/HttpOnly/SameSite=Lax/Path=/。

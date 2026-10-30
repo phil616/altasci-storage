@@ -48,6 +48,7 @@ func New(o Options) http.Handler {
 	r.Use(s.baseMiddleware, s.recoverer, s.cors)
 	r.Get("/health/live", s.live)
 	r.Get("/health/ready", s.ready)
+	r.Method(http.MethodPost, "/mcp", s.mcpHandler())
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/auth/login", s.login)
 		r.Get("/auth/oidc/providers", s.oidcProviders)

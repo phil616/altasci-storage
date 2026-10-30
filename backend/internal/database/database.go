@@ -13,7 +13,11 @@ import (
 )
 
 func Open(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite3", "file:"+path+"?_foreign_keys=on&_busy_timeout=5000&_journal_mode=WAL&_synchronous=FULL")
+	// Reserve the writer at BeginTx. A deferred WAL transaction that reads
+	// before writing can fail SQLITE_BUSY_SNAPSHOT immediately, bypassing the
+	// busy timeout. IMMEDIATE lets concurrent uploads wait for the writer while
+	// ordinary reads still use WAL snapshots on the other pooled connections.
+	db, err := sql.Open("sqlite3", "file:"+path+"?_foreign_keys=on&_busy_timeout=5000&_journal_mode=WAL&_synchronous=FULL&_txlock=immediate")
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}

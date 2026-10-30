@@ -179,6 +179,8 @@ Linux 若缺少浏览器系统依赖，可按运行环境安装依赖，或使�
 | --- | --- | --- |
 | 后端测试 | `cd backend && go test ./...` | repository、认证授权、HTTP 集成、Local 存储等 |
 | 后端静态检查 | `cd backend && go vet ./...` | Go 静态分析 |
+| MCP 协议与权限 | `cd backend && go test ./internal/httpapi -run TestMCP -count=1` | 官方 SDK 的新旧协议接入、文件生命周期、Scope/项目/上传所有权隔离、实时撤权、请求大小和 Origin |
+| MCP 并发与竞态 | `cd backend && go test -race ./internal/httpapi ./internal/database -run 'TestMCP\|TestConcurrent' -count=1 -v` | 32 并发任务、两用户隔离、64 个完整文件流程与 448 次工具调用；同名目录和同一上传提交各 32 并发竞争；SQLite 事务回归，详见 MCP 文档 |
 | 文档契约 | `cd backend && go test ./internal/httpapi -run TestOpenAPIContract -count=1` | 实际 chi 路由与 OpenAPI 的方法/路径、唯一 operationId、引用、资源响应字段、设置键、Scope 枚举及路由 Scope |
 | 前端构建 | `cd frontend && npm run build` | TypeScript 和生产打包 |
 | 本地浏览器 | `cd frontend && npm run test:e2e` | 默认在 127.0.0.1:4173 启动生产 Preview，构建 API Origin 固定为 https://api.example.test，由测试拦截 |

@@ -10,6 +10,7 @@ AltasCI 云盘是一个面向企业内部使用的文件管理系统。SQLite �
 - 4 位数字提取码、有效期和公开分享，可勾选“携带密码”生成自动验证链接；
 - 本地密码、OIDC、CSRF、限流与审计；
 - 用户 API 密钥、操作权限、项目范围、到期和撤销管理；
+- MCP 智能体接入：静态 API Key 认证、项目查询与用户文件操作；
 - React 19 + Ant Design 前端和 Go HTTP API。
 - `ascli` 分享下载客户端，支持密码、目录递归、S3/OSS 直连和 CI/CD。
 
@@ -63,6 +64,7 @@ VITE_API_BASE_URL=https://your-api.example.com npm run build
 - [技术架构、数据模型与安全边界](docs/architecture.md)
 - [配置字段、默认值与生效规则](docs/configuration.md)
 - [自动化 API 密钥接入](docs/api-keys.md)
+- [MCP 智能体接入、权限边界与并发测试](docs/mcp.md)
 - [HTTP API 使用说明](docs/api.md)
 - [OpenAPI 3.1 规范](docs/openapi.yaml)
 
